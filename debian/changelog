@@ -1,0 +1,11 @@
+phi-adapter-plex (1.0.1-1) trixie; urgency=medium
+
+  * Rebuilt against phi-adapter-sdk 0.25.0 (cameraFeatures, voice and camera kinds; ABI)
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Sat, 24 Oct 2026 16:58:34 +0200
+
+phi-adapter-plex (1.0.0-1) trixie; urgency=medium
+
+  * Package the current Plex media-player adapter for Debian.
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Mon, 12 Oct 2026 18:00:00 +0200

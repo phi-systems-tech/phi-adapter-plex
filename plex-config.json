@@ -1,0 +1,9 @@
+{
+  "discovery": [
+    {
+      "kind": "mdns",
+      "mdnsServiceType": "_plexmediasvr._tcp",
+      "defaultPort": 32400
+    }
+  ]
+}
