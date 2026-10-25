@@ -31,16 +31,14 @@ PlexSettings settings()
 sdk::MediaPlayerInvokeRequest request(v1::MediaPlayerAction action)
 {
     sdk::MediaPlayerInvokeRequest value;
-    value.cmdId = 7;
-    value.deviceExternalId = "player-id";
-    value.action = action;
+    value.setCmdId(7).setDeviceExternalId("player-id").setAction(action);
     return value;
 }
 
 bool hasHeader(const phicore::adapter::net::HttpClient::Call &call,
                const std::string &name, const std::string &value)
 {
-    return std::any_of(call.headers.begin(), call.headers.end(), [&](const auto &header) {
+    return std::any_of(call.headers().begin(), call.headers().end(), [&](const auto &header) {
         return header.first == name && header.second == value;
     });
 }
@@ -49,38 +47,35 @@ void testTransportCommands()
 {
     const auto play = buildMediaCommand(settings(), request(v1::MediaPlayerAction::Play), 11);
     PHI_CHECK(play.ok);
-    PHI_CHECK(play.call.url ==
+    PHI_CHECK(play.call.url() ==
               "http://10.0.0.20:32500/player/playback/play?commandID=11&type=video");
     PHI_CHECK(hasHeader(play.call, "X-Plex-Token", "secret token"));
     PHI_CHECK(hasHeader(play.call, "X-Plex-Target-Client-Identifier", "player-id"));
 
     const auto next = buildMediaCommand(settings(), request(v1::MediaPlayerAction::Next), 12);
-    PHI_CHECK(next.ok && next.call.url.find("/skipNext?") != std::string::npos);
+    PHI_CHECK(next.ok && next.call.url().find("/skipNext?") != std::string::npos);
     const auto previous = buildMediaCommand(settings(), request(v1::MediaPlayerAction::Previous), 13);
-    PHI_CHECK(previous.ok && previous.call.url.find("/skipPrevious?") != std::string::npos);
+    PHI_CHECK(previous.ok && previous.call.url().find("/skipPrevious?") != std::string::npos);
 }
 
 void testSeekAndPlayMedia()
 {
     auto seek = request(v1::MediaPlayerAction::SeekTo);
-    seek.positionMs = 12345;
+    seek.setPositionMs(12345);
     const auto builtSeek = buildMediaCommand(settings(), seek, 20);
-    PHI_CHECK(builtSeek.ok && builtSeek.call.url.find("offset=12345") != std::string::npos);
+    PHI_CHECK(builtSeek.ok && builtSeek.call.url().find("offset=12345") != std::string::npos);
 
     auto media = request(v1::MediaPlayerAction::PlayMedia);
-    media.mediaId = "456";
-    media.mediaType = "movie";
-    media.positionMs = 900;
+    media.setMediaId("456").setMediaType("movie").setPositionMs(900);
     const auto built = buildMediaCommand(settings(), media, 21);
     PHI_CHECK(built.ok);
-    PHI_CHECK(built.call.url.find("key=%2Flibrary%2Fmetadata%2F456") != std::string::npos);
-    PHI_CHECK(built.call.url.find("machineIdentifier=server-id") != std::string::npos);
-    PHI_CHECK(built.call.url.find("token=secret%20token") != std::string::npos);
+    PHI_CHECK(built.call.url().find("key=%2Flibrary%2Fmetadata%2F456") != std::string::npos);
+    PHI_CHECK(built.call.url().find("machineIdentifier=server-id") != std::string::npos);
+    PHI_CHECK(built.call.url().find("token=secret%20token") != std::string::npos);
 
-    media.mediaId = "https://example.invalid/movie.mp4";
+    media.setMediaId("https://example.invalid/movie.mp4");
     PHI_CHECK(!buildMediaCommand(settings(), media, 22).ok);
-    media.mediaId = "456";
-    media.enqueue = v1::MediaPlayerEnqueue::Add;
+    media.setMediaId("456").setEnqueue(v1::MediaPlayerEnqueue::Add);
     const auto enqueue = buildMediaCommand(settings(), media, 23);
     PHI_CHECK(!enqueue.ok && enqueue.status == v1::CmdStatus::NotSupported);
 }
@@ -104,8 +99,8 @@ void testDeviceCapabilities()
         | v1::MediaPlayerFeature::Previous
         | v1::MediaPlayerFeature::SeekTo
         | v1::MediaPlayerFeature::PlayMedia;
-    PHI_CHECK(device.externalId == "player-id");
-    PHI_CHECK(device.mediaPlayerFeatures == expected);
+    PHI_CHECK(device.externalId() == "player-id");
+    PHI_CHECK(device.mediaPlayerFeatures() == expected);
 
     PlexSettings notReady = settings();
     notReady.serverMachineIdentifier.clear();
@@ -115,7 +110,7 @@ void testDeviceCapabilities()
         | v1::MediaPlayerFeature::Next
         | v1::MediaPlayerFeature::Previous
         | v1::MediaPlayerFeature::SeekTo;
-    PHI_CHECK(buildDevice(notReady).mediaPlayerFeatures == expectedNotReady);
+    PHI_CHECK(buildDevice(notReady).mediaPlayerFeatures() == expectedNotReady);
 }
 
 void testPercentEncoding()
@@ -127,11 +122,11 @@ void testPercentEncoding()
 void testHttpStatusMapping()
 {
     phicore::adapter::net::HttpClient::Result unauthorized;
-    unauthorized.status = 401;
+    unauthorized.setStatus(401);
     PHI_CHECK(statusForHttp(unauthorized) == v1::CmdStatus::NotAuthorized);
 
     phicore::adapter::net::HttpClient::Result rejected;
-    rejected.status = 404;
+    rejected.setStatus(404);
     PHI_CHECK(statusForHttp(rejected) == v1::CmdStatus::Failure);
 
     phicore::adapter::net::HttpClient::Result offline;

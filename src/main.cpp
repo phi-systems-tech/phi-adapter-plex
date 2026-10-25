@@ -26,12 +26,12 @@ class PlexFactory final : public sdk::AdapterFactory
 protected:
     void onBootstrap(const sdk::BootstrapRequest &request) override
     {
-        m_settings = settingsFromAdapter(request.adapter, parseObject(request.adapter.metaJson));
+        m_settings = settingsFromAdapter(request.adapter(), parseObject(request.adapter().metaJson()));
     }
 
     void onFactoryConfigChanged(const sdk::ConfigChangedRequest &request) override
     {
-        m_settings = settingsFromAdapter(request.adapter, parseObject(request.adapter.metaJson));
+        m_settings = settingsFromAdapter(request.adapter(), parseObject(request.adapter().metaJson()));
     }
 
     std::unique_ptr<sdk::InstanceExecutionBackend> createFactoryExecutionBackend() override
@@ -72,52 +72,47 @@ protected:
 
     void onFactoryActionInvoke(const sdk::AdapterActionInvokeRequest &request) override
     {
-        if (request.actionId != "probe") {
-            answer(request.cmdId, v1::CmdStatus::NotSupported, "Unsupported factory action");
+        if (request.actionId() != "probe") {
+            answer(request.cmdId(), v1::CmdStatus::NotSupported, "Unsupported factory action");
             return;
         }
         PlexSettings settings = m_settings;
-        applyProbeParams(parseObject(request.paramsJson), settings);
+        applyProbeParams(parseObject(request.paramsJson()), settings);
         if (!settings.hasServer()) {
-            answer(request.cmdId, v1::CmdStatus::InvalidArgument,
+            answer(request.cmdId(), v1::CmdStatus::InvalidArgument,
                    "Plex server host, port and token are required");
             return;
         }
         if (!m_http) {
             phi::runtime::Loop *loop = phi::runtime::Loop::current();
             if (!loop) {
-                answer(request.cmdId, v1::CmdStatus::Failure, "No factory event loop");
+                answer(request.cmdId(), v1::CmdStatus::Failure, "No factory event loop");
                 return;
             }
             m_http.emplace(*loop);
         }
         if (m_http->busy()) {
-            answer(request.cmdId, v1::CmdStatus::Failure, "A Plex probe is already running");
+            answer(request.cmdId(), v1::CmdStatus::Failure, "A Plex probe is already running");
             return;
         }
 
-        const v1::CmdId cmdId = request.cmdId;
+        const v1::CmdId cmdId = request.cmdId();
         const bool issued = m_http->send(serverCall(settings, "/identity"),
                                          [this, cmdId](net::HttpClient::Result result) {
-            if (!result.ok) {
+            if (!result.ok()) {
                 answer(cmdId, statusForHttp(result),
                        errorForHttp(result, "Plex server probe failed"));
                 return;
             }
-            const std::string machineId = machineIdentifierFromIdentity(result.body);
+            const std::string machineId = machineIdentifierFromIdentity(result.body());
             if (machineId.empty()) {
                 answer(cmdId, v1::CmdStatus::Failure,
                        "The endpoint answered but did not identify a Plex server");
                 return;
             }
-            v1::ActionResponse response;
-            response.id = cmdId;
-            response.tsMs = 0;
-            response.status = v1::CmdStatus::Success;
-            response.resultType = v1::ActionResultType::String;
-            response.resultValue = machineId;
-            response.formValues.push_back({"serverMachineIdentifier",
-                                           v1::ScalarValue(machineId)});
+            auto response = v1::ActionResponse::success(cmdId);
+            response.setResult(machineId, v1::ActionResultType::String);
+            response.addFormValue("serverMachineIdentifier", v1::ScalarValue(machineId));
             sendAction(std::move(response));
         });
         if (!issued)
@@ -134,13 +129,7 @@ protected:
 private:
     void answer(v1::CmdId cmdId, v1::CmdStatus status, const std::string &error)
     {
-        v1::ActionResponse response;
-        response.id = cmdId;
-        response.tsMs = 0;
-        response.status = status;
-        response.error = error;
-        response.resultType = v1::ActionResultType::None;
-        sendAction(std::move(response));
+        sendAction(v1::ActionResponse::failure(cmdId, status, error));
     }
 
     void sendAction(v1::ActionResponse response)

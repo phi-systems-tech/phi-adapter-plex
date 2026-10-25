@@ -61,9 +61,9 @@ CommandBuildResult buildMediaCommand(const PlexSettings &settings,
     if (!settings.hasPlayer())
         return invalid("Plex player host and client identifier are required");
 
-    const std::string type = playbackType(request.mediaType);
+    const std::string type = playbackType(request.mediaType());
     std::string path;
-    switch (request.action) {
+    switch (request.action()) {
     case v1::MediaPlayerAction::Play:
         path = "/player/playback/play" + query(commandId, type);
         break;
@@ -80,26 +80,26 @@ CommandBuildResult buildMediaCommand(const PlexSettings &settings,
         path = "/player/playback/skipPrevious" + query(commandId, type);
         break;
     case v1::MediaPlayerAction::SeekTo:
-        if (request.positionMs < 0)
+        if (request.positionMs() < 0)
             return invalid("Seek position must not be negative");
         path = "/player/playback/seekTo" + query(commandId, type)
-            + "&offset=" + std::to_string(request.positionMs);
+            + "&offset=" + std::to_string(request.positionMs());
         break;
     case v1::MediaPlayerAction::SeekBy:
         return invalid("Relative seek is not supported by Plex Companion",
                        v1::CmdStatus::NotSupported);
     case v1::MediaPlayerAction::PlayMedia: {
-        if (request.enqueue != v1::MediaPlayerEnqueue::Replace)
+        if (request.enqueue() != v1::MediaPlayerEnqueue::Replace)
             return invalid("Plex queue mutation is not implemented", v1::CmdStatus::NotSupported);
         if (!settings.hasServer())
             return invalid("Plex server host, port and token are required for PlayMedia");
         if (settings.serverMachineIdentifier.empty())
             return invalid("Plex server identity has not been detected yet",
                            v1::CmdStatus::TemporarilyOffline);
-        const std::string key = metadataKey(request.mediaId);
+        const std::string key = metadataKey(request.mediaId());
         if (key.empty())
             return invalid("mediaId must be a Plex ratingKey or /library/metadata/... key");
-        const std::int64_t offset = std::max<std::int64_t>(0, request.positionMs);
+        const std::int64_t offset = std::max<std::int64_t>(0, request.positionMs());
         path = "/player/playback/playMedia?commandID=" + std::to_string(commandId)
             + "&type=" + urlEncode(type)
             + "&key=" + urlEncode(key)
@@ -146,19 +146,19 @@ std::string machineIdentifierFromIdentity(const std::string &body)
 
 v1::CmdStatus statusForHttp(const net::HttpClient::Result &result)
 {
-    if (result.unauthorized || result.status == 401 || result.status == 403)
+    if (result.unauthorized() || result.status() == 401 || result.status() == 403)
         return v1::CmdStatus::NotAuthorized;
-    if (result.status >= 400)
+    if (result.status() >= 400)
         return v1::CmdStatus::Failure;
     return v1::CmdStatus::TemporarilyOffline;
 }
 
 std::string errorForHttp(const net::HttpClient::Result &result, const char *fallback)
 {
-    if (!result.error.empty())
-        return result.error;
-    if (result.status > 0)
-        return std::string(fallback) + " (HTTP " + std::to_string(result.status) + ")";
+    if (!result.error().empty())
+        return result.error();
+    if (result.status() > 0)
+        return std::string(fallback) + " (HTTP " + std::to_string(result.status()) + ")";
     return fallback;
 }
 

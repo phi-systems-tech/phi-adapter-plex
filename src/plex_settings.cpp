@@ -24,20 +24,19 @@ std::string baseUrl(const std::string &host, int port, bool tls)
 
 void addPlexHeaders(net::HttpClient::Call &call, const PlexSettings &settings)
 {
-    call.headers.emplace_back("Accept", "application/json");
-    call.headers.emplace_back("User-Agent", "phi-adapter-plex-ipc/1.0");
-    call.headers.emplace_back("X-Plex-Product", "Phi Plex Adapter");
-    call.headers.emplace_back("X-Plex-Version", "1.0.0");
-    call.headers.emplace_back("X-Plex-Device", "phi-core");
-    call.headers.emplace_back("X-Plex-Platform", "Linux");
-    call.headers.emplace_back("X-Plex-Provides", "controller");
-    call.headers.emplace_back("X-Plex-Client-Identifier", settings.controllerIdentifier);
+    call.addHeader("Accept", "application/json");
+    call.addHeader("User-Agent", "phi-adapter-plex-ipc/1.0");
+    call.addHeader("X-Plex-Product", "Phi Plex Adapter");
+    call.addHeader("X-Plex-Version", "1.0.0");
+    call.addHeader("X-Plex-Device", "phi-core");
+    call.addHeader("X-Plex-Platform", "Linux");
+    call.addHeader("X-Plex-Provides", "controller");
+    call.addHeader("X-Plex-Client-Identifier", settings.controllerIdentifier);
     if (!settings.playerClientIdentifier.empty())
-        call.headers.emplace_back("X-Plex-Target-Client-Identifier",
-                                  settings.playerClientIdentifier);
+        call.addHeader("X-Plex-Target-Client-Identifier", settings.playerClientIdentifier);
     if (!settings.token.empty())
-        call.headers.emplace_back("X-Plex-Token", settings.token);
-    call.timeout = 10s;
+        call.addHeader("X-Plex-Token", settings.token);
+    call.setTimeout(10s);
 }
 
 std::string metaOr(const Json &meta, const char *key, std::string fallback)
@@ -76,11 +75,11 @@ bool PlexSettings::hasPlayer() const
 PlexSettings settingsFromAdapter(const v1::Adapter &adapter, const Json &meta)
 {
     PlexSettings out;
-    out.serverHost = str::trimmed(adapter.ip.empty() ? adapter.host : adapter.ip);
-    out.serverPort = adapter.port > 0 ? static_cast<int>(adapter.port) : 32400;
-    out.token = str::trimmed(adapter.token);
-    out.serverUseTls = v1::hasFlag(adapter.options, v1::AdapterOption::UseTls);
-    out.controllerIdentifier = "phi-plex-" + str::trimmed(adapter.externalId);
+    out.serverHost = str::trimmed(adapter.ip().empty() ? adapter.host() : adapter.ip());
+    out.serverPort = adapter.port() > 0 ? static_cast<int>(adapter.port()) : 32400;
+    out.token = str::trimmed(adapter.token());
+    out.serverUseTls = v1::hasFlag(adapter.options(), v1::AdapterOption::UseTls);
+    out.controllerIdentifier = "phi-plex-" + str::trimmed(adapter.externalId());
     if (out.controllerIdentifier == "phi-plex-")
         out.controllerIdentifier = "phi-plex-adapter";
 
@@ -129,19 +128,19 @@ std::string urlEncode(std::string_view value)
 
 net::HttpClient::Call serverCall(const PlexSettings &settings, std::string_view path)
 {
-    net::HttpClient::Call call;
-    call.url = settings.serverBaseUrl() + (path.starts_with('/') ? "" : "/") + std::string(path);
+    net::HttpClient::Call call(settings.serverBaseUrl() + (path.starts_with('/') ? "" : "/")
+                               + std::string(path));
     addPlexHeaders(call, settings);
-    call.tls.enabled = settings.serverUseTls;
+    call.tls().setEnabled(settings.serverUseTls);
     return call;
 }
 
 net::HttpClient::Call playerCall(const PlexSettings &settings, std::string_view path)
 {
-    net::HttpClient::Call call;
-    call.url = settings.playerBaseUrl() + (path.starts_with('/') ? "" : "/") + std::string(path);
+    net::HttpClient::Call call(settings.playerBaseUrl() + (path.starts_with('/') ? "" : "/")
+                               + std::string(path));
     addPlexHeaders(call, settings);
-    call.tls.enabled = settings.playerUseTls;
+    call.tls().setEnabled(settings.playerUseTls);
     return call;
 }
 

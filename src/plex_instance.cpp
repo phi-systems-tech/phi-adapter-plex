@@ -65,7 +65,8 @@ protected:
             return;
         cancelAll("Config changed");
         m_lifecycle = Lifecycle::Running;
-        m_settings = settingsFromAdapter(request.adapter, parseObject(request.adapter.metaJson));
+        m_settings = settingsFromAdapter(request.adapter(),
+                                         parseObject(request.adapter().metaJson()));
         emitDevice();
         setConnected(false);
         if (m_settings.hasServer() && m_settings.hasPlayer())
@@ -75,26 +76,26 @@ protected:
     void onMediaPlayerInvoke(const sdk::MediaPlayerInvokeRequest &request) override
     {
         if (m_lifecycle != Lifecycle::Running || !m_http) {
-            answer(request.cmdId, v1::CmdStatus::TemporarilyOffline, "Instance is not running");
+            answer(request.cmdId(), v1::CmdStatus::TemporarilyOffline, "Instance is not running");
             return;
         }
-        if (request.deviceExternalId != m_settings.deviceId()) {
-            answer(request.cmdId, v1::CmdStatus::NotSupported, "Unknown Plex player");
+        if (request.deviceExternalId() != m_settings.deviceId()) {
+            answer(request.cmdId(), v1::CmdStatus::NotSupported, "Unknown Plex player");
             return;
         }
 
         const CommandBuildResult built = buildMediaCommand(m_settings, request, ++m_commandId);
         if (!built.ok) {
-            answer(request.cmdId, built.status, built.error);
+            answer(request.cmdId(), built.status, built.error);
             return;
         }
-        enqueue(request.cmdId, built.call, [this, cmdId = request.cmdId](net::HttpClient::Result result) {
-            if (result.ok) {
+        enqueue(request.cmdId(), built.call, [this, cmdId = request.cmdId()](net::HttpClient::Result result) {
+            if (result.ok()) {
                 setConnected(true);
                 answer(cmdId, v1::CmdStatus::Success, {});
                 return;
             }
-            if (result.status == 0)
+            if (result.status() == 0)
                 setConnected(false);
             answer(cmdId, statusForHttp(result), errorForHttp(result, "Plex player command failed"));
         });
@@ -120,11 +121,11 @@ private:
     void probeServer()
     {
         enqueue(0, serverCall(m_settings, "/identity"), [this](net::HttpClient::Result result) {
-            if (!result.ok) {
+            if (!result.ok()) {
                 setConnected(false);
                 return;
             }
-            const std::string detected = machineIdentifierFromIdentity(result.body);
+            const std::string detected = machineIdentifierFromIdentity(result.body());
             if (!detected.empty() && detected != m_settings.serverMachineIdentifier) {
                 m_settings.serverMachineIdentifier = detected;
                 emitDevice();
@@ -137,7 +138,7 @@ private:
     {
         const std::string path = "/resources?commandID=" + std::to_string(++m_commandId);
         enqueue(0, playerCall(m_settings, path), [this](net::HttpClient::Result result) {
-            setConnected(result.ok);
+            setConnected(result.ok());
         });
     }
 
@@ -165,7 +166,7 @@ private:
             Pending failed = std::move(*m_active);
             m_active.reset();
             net::HttpClient::Result result;
-            result.error = "HTTP request could not be issued";
+            result.setError("HTTP request could not be issued");
             if (failed.done)
                 failed.done(std::move(result));
             pump();
@@ -201,10 +202,7 @@ private:
     void answer(v1::CmdId cmdId, v1::CmdStatus status, const std::string &errorText)
     {
         v1::CmdResponse response;
-        response.id = cmdId;
-        response.tsMs = nowMs();
-        response.status = status;
-        response.error = errorText;
+        response.setId(cmdId).setTsMs(nowMs()).setStatus(status).setError(errorText);
         v1::Utf8String error;
         if (!sendResult(response, &error))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
