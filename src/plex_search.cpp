@@ -350,11 +350,17 @@ std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vecto
             std::stable_sort(known.begin(), known.end(),
                              [](const Track &a, const Track &b) { return a.ratingCount > b.ratingCount; });
             const std::size_t top = std::min<std::size_t>(known.size(), std::max<std::size_t>(pickAmong, 1));
-            Track chosen = known[pick ? pick(top) % top : 0];
-            // Below a named title on purpose: "Robbie Williams Angels" read
-            // as the artist alone must lose to the reading that found Angels.
-            chosen.score = guess.score * 7 / 10;
-            out.push_back(std::move(chosen));
+            const std::size_t first = pick ? pick(top) % top : 0;
+            // The pick first; two more of the best-known behind it, so a
+            // caller that asks back (the name was not certain) has titles to
+            // offer. Five under the reading itself, so "Robbie Williams
+            // Angels" read as the artist alone loses to the reading that
+            // found Angels, and "Robbie Williams" alone still plays at 95.
+            for (std::size_t k = 0; k < std::min<std::size_t>(3, known.size()); ++k) {
+                Track t = known[(first + k) % known.size()];
+                t.score = std::max(0, guess.score - 5 - static_cast<int>(k));
+                out.push_back(std::move(t));
+            }
             continue;
         }
         // A title named, or an album: the album's first track.
