@@ -1,3 +1,9 @@
+phi-adapter-plex (1.2.0-1) trixie; urgency=medium
+
+  * Names as a transcriber hears them: the library's artists matched word by word; an artist alone plays one of the best-known tracks
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Sun, 25 Oct 2026 15:20:00 +0100
+
 phi-adapter-plex (1.1.0-1) trixie; urgency=medium
 
   * media.search: what the library has for a title, an artist or both; a server-only instance
