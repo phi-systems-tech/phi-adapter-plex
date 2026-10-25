@@ -23,7 +23,8 @@ v1::AdapterConfigSection section()
     using Flag = v1::AdapterConfigFieldFlag;
     v1::AdapterConfigSection out;
     out.setTitle("Plex server and player");
-    out.setDescription("The media server owns the library; the selected Plex player accepts Companion commands.");
+    out.setDescription("The media server owns the library, which \"play ...\" searches. "
+                       "A Plex player is optional: with one, the instance is also that player.");
     out.layout().setColumns(2);
 
     auto serverHost = field("serverHost", Type::Hostname, "Server host",
@@ -41,8 +42,7 @@ v1::AdapterConfigSection section()
                           "Optional PMS machineIdentifier; detected from /identity when omitted.");
 
     auto playerHost = field("playerHost", Type::Hostname, "Player host",
-                            "Hostname or IP address of the Plex Companion player.");
-    playerHost.setFlags(Flag::Required);
+                            "Hostname or IP address of the Plex Companion player; empty for a server-only instance.");
     auto playerPort = field("playerPort", Type::Port, "Player port",
                             "Plex Companion control port (commonly 32500 or 32400).",
                             std::int64_t{32500});
@@ -50,8 +50,7 @@ v1::AdapterConfigSection section()
     auto playerTls = field("playerUseTls", Type::Boolean, "Player HTTPS",
                            "Use HTTPS for Companion control.", false);
     auto playerId = field("playerClientIdentifier", Type::String, "Player identifier",
-                          "The target player's Plex clientIdentifier.");
-    playerId.setFlags(Flag::Required);
+                          "The target player's Plex clientIdentifier; empty for a server-only instance.");
     auto playerName = field("playerName", Type::String, "Player name",
                             "Display name for this player.");
     auto controllerId = field("controllerIdentifier", Type::String, "Controller identifier",
@@ -85,6 +84,13 @@ v1::AdapterCapabilities capabilities()
 
     caps.addFactoryAction({"probe", "Test Plex server",
                            "Validate the Plex Media Server address and token."});
+    // The convention core's cmd.media.play looks for (phi-adapter-sdk README,
+    // "media.search"): {query} in, items with a playable mediaId out. Not a
+    // button - hidden from the UI.
+    v1::AdapterActionDescriptor search("media.search", "Search the library",
+                                       "What the library has for a title, an artist or both.");
+    search.setPlacement(v1::AdapterActionPlacement::Hidden).setTimeoutMs(15000);
+    caps.addInstanceAction(search);
     return caps;
 }
 

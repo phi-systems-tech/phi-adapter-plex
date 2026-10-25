@@ -10,9 +10,12 @@
 #include "phi/adapter/net/http_client.h"
 #include "phi/runtime/loop.h"
 
+#include "phi/runtime/str.h"
+
 #include "plex_json.h"
 #include "plex_model.h"
 #include "plex_protocol.h"
+#include "plex_search.h"
 #include "plex_settings.h"
 
 namespace phicore::plex::ipc {
@@ -67,10 +70,40 @@ protected:
         m_lifecycle = Lifecycle::Running;
         m_settings = settingsFromAdapter(request.adapter(),
                                          parseObject(request.adapter().metaJson()));
-        emitDevice();
+        // A server-only instance announces no device: it is a library to
+        // search, not a player (ROADMAP M9 (h)).
+        if (m_settings.hasPlayer())
+            emitDevice();
         setConnected(false);
-        if (m_settings.hasServer() && m_settings.hasPlayer())
+        if (m_settings.hasServer())
             probeServer();
+    }
+
+    void onAdapterActionInvoke(const sdk::AdapterActionInvokeRequest &request) override
+    {
+        if (request.actionId() != kSearchAction) {
+            answerAction(request.cmdId(), v1::CmdStatus::NotSupported, "Unsupported action");
+            return;
+        }
+        if (m_lifecycle != Lifecycle::Running || !m_http) {
+            answerAction(request.cmdId(), v1::CmdStatus::TemporarilyOffline, "Instance is not running");
+            return;
+        }
+        if (!m_settings.hasServer()) {
+            answerAction(request.cmdId(), v1::CmdStatus::InvalidArgument,
+                         "Plex server host, port and token are required for a search");
+            return;
+        }
+        const std::string query = phi::str::trimmed(jsonString(parseObject(request.paramsJson()), "query"));
+        if (query.empty()) {
+            answerAction(request.cmdId(), v1::CmdStatus::InvalidArgument, "query is required");
+            return;
+        }
+        auto search = std::make_shared<Search>();
+        search->cmdId = request.cmdId();
+        search->query = query;
+        search->splits = splits(query, kMaxSplits);
+        searchWhole(std::move(search));
     }
 
     void onMediaPlayerInvoke(const sdk::MediaPlayerInvokeRequest &request) override
@@ -104,11 +137,145 @@ protected:
 private:
     enum class Lifecycle { Idle, Running, Paused, Stopped };
 
+    static constexpr const char *kSearchAction = "media.search";
+    /// How many artist/title splits of a query are tried before giving up:
+    /// "katy melua thank you stars" is three requests at most on top of the
+    /// whole-query one.
+    static constexpr std::size_t kMaxSplits = 3;
+    static constexpr int kHubLimit = 10;
+    static constexpr std::size_t kItemLimit = 5;
+
     struct Pending {
         v1::CmdId cmdId = 0;
+        /// An action is answered with an ActionResponse, a command with a
+        /// CmdResponse; a cancelled one has to know which.
+        bool action = false;
         net::HttpClient::Call call;
         net::HttpClient::Done done;
     };
+
+    /// One `media.search` in flight: the whole query first, then the splits
+    /// (plex_search.h), then the token for the answer.
+    struct Search {
+        v1::CmdId cmdId = 0;
+        std::string query;
+        std::vector<Split> splits;
+        std::size_t nextSplit = 0;
+        std::vector<Track> found;
+    };
+
+    void searchWhole(std::shared_ptr<Search> search)
+    {
+        enqueueAction(search->cmdId, serverCall(m_settings, hubsSearchPath(search->query, kHubLimit)),
+                      [this, search](net::HttpClient::Result result) {
+            if (!result.ok()) {
+                failSearch(*search, result);
+                return;
+            }
+            SearchHubs hubs = parseHubs(result.body());
+            for (Track &track : hubs.tracks) {
+                track.score = scoreTrack(track, search->query);
+                if (track.score > 0) search->found.push_back(track);
+            }
+            if (!search->found.empty())
+                finishSearch(std::move(search));
+            else
+                searchSplit(std::move(search));
+        });
+    }
+
+    void searchSplit(std::shared_ptr<Search> search)
+    {
+        if (search->nextSplit >= search->splits.size()) {
+            finishSearch(std::move(search));
+            return;
+        }
+        const Split split = search->splits[search->nextSplit++];
+        enqueueAction(search->cmdId, serverCall(m_settings, hubsSearchPath(split.artist, 3)),
+                      [this, search, split](net::HttpClient::Result result) {
+            if (!result.ok()) {
+                failSearch(*search, result);
+                return;
+            }
+            const SearchHubs hubs = parseHubs(result.body());
+            if (!hubs.artistKey.empty())
+                matchTracks(std::move(search), artistTracksPath(hubs.artistKey), split.title);
+            else if (!hubs.albumKey.empty())
+                matchTracks(std::move(search), albumTracksPath(hubs.albumKey), split.title);
+            else
+                searchSplit(std::move(search));
+        });
+    }
+
+    void matchTracks(std::shared_ptr<Search> search, const std::string &path, const std::string &title)
+    {
+        enqueueAction(search->cmdId, serverCall(m_settings, path),
+                      [this, search, title](net::HttpClient::Result result) {
+            if (!result.ok()) {
+                failSearch(*search, result);
+                return;
+            }
+            for (Track &track : parseTracks(result.body())) {
+                track.score = scoreTitle(track, title);
+                if (track.score > 0) search->found.push_back(track);
+            }
+            if (!search->found.empty())
+                finishSearch(std::move(search));
+            else
+                searchSplit(std::move(search));
+        });
+    }
+
+    void finishSearch(std::shared_ptr<Search> search)
+    {
+        if (search->found.empty()) {
+            sendAction(v1::ActionResponse::success(search->cmdId)
+                           .setData(dump(itemsJson({}, m_settings, {}, kItemLimit))));
+            return;
+        }
+        // A token minted for this answer: the server's own never leaves here.
+        enqueueAction(search->cmdId, serverCall(m_settings, delegationTokenPath()),
+                      [this, search](net::HttpClient::Result result) {
+            if (!result.ok()) {
+                failSearch(*search, result);
+                return;
+            }
+            const std::string token = parseDelegationToken(result.body());
+            if (token.empty()) {
+                answerAction(search->cmdId, v1::CmdStatus::Failure,
+                             "The server did not mint a delegation token");
+                return;
+            }
+            sendAction(v1::ActionResponse::success(search->cmdId)
+                           .setData(dump(itemsJson(search->found, m_settings, token, kItemLimit))));
+        });
+    }
+
+    void failSearch(const Search &search, const net::HttpClient::Result &result)
+    {
+        if (result.status() == 0)
+            setConnected(false);
+        answerAction(search.cmdId, statusForHttp(result), errorForHttp(result, "Plex search failed"));
+    }
+
+    void enqueueAction(v1::CmdId cmdId, net::HttpClient::Call call, net::HttpClient::Done done)
+    {
+        m_queue.push_back({cmdId, true, std::move(call), std::move(done)});
+        pump();
+    }
+
+    void answerAction(v1::CmdId cmdId, v1::CmdStatus status, const std::string &errorText)
+    {
+        sendAction(v1::ActionResponse::failure(cmdId, status, errorText));
+    }
+
+    void sendAction(const v1::ActionResponse &response)
+    {
+        v1::Utf8String error;
+        if (!sendResult(response, &error))
+            log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
+                "failed to answer Plex action: %1", {error});
+    }
 
     void emitDevice()
     {
@@ -128,9 +295,14 @@ private:
             const std::string detected = machineIdentifierFromIdentity(result.body());
             if (!detected.empty() && detected != m_settings.serverMachineIdentifier) {
                 m_settings.serverMachineIdentifier = detected;
-                emitDevice();
+                if (m_settings.hasPlayer())
+                    emitDevice();
             }
-            probePlayer();
+            // Without a player the server answering is the connection.
+            if (m_settings.hasPlayer())
+                probePlayer();
+            else
+                setConnected(true);
         });
     }
 
@@ -144,7 +316,7 @@ private:
 
     void enqueue(v1::CmdId cmdId, net::HttpClient::Call call, net::HttpClient::Done done)
     {
-        m_queue.push_back({cmdId, std::move(call), std::move(done)});
+        m_queue.push_back({cmdId, false, std::move(call), std::move(done)});
         pump();
     }
 
@@ -177,15 +349,21 @@ private:
     {
         if (m_http)
             m_http->cancel();
-        if (m_active && m_active->cmdId != 0)
-            answer(m_active->cmdId, v1::CmdStatus::Failure, reason);
+        const auto refuse = [&](const Pending &pending) {
+            if (pending.cmdId == 0)
+                return;
+            if (pending.action)
+                answerAction(pending.cmdId, v1::CmdStatus::Failure, reason);
+            else
+                answer(pending.cmdId, v1::CmdStatus::Failure, reason);
+        };
+        if (m_active)
+            refuse(*m_active);
         m_active.reset();
         std::deque<Pending> queued = std::move(m_queue);
         m_queue.clear();
-        for (const Pending &pending : queued) {
-            if (pending.cmdId != 0)
-                answer(pending.cmdId, v1::CmdStatus::Failure, reason);
-        }
+        for (const Pending &pending : queued)
+            refuse(pending);
     }
 
     void setConnected(bool connected)
