@@ -182,6 +182,10 @@ void testSearchScores()
     PHI_CHECK(scoreTitle("Thankyou, Stars", "thank you stars") == 100);
     PHI_CHECK(scoreTitle("Nine Million Bicycles", "thank you stars") == 0);
     PHI_CHECK(scoreTitle("Angels", "angels") == 100);
+    // By sound, word for word.
+    PHI_CHECK(scoreTitle("Feel", "viel") == 60);
+    PHI_CHECK(scoreTitle("Feel", "fear") == 0);
+    PHI_CHECK(scoreTitle("Come Undone", "viel") == 0);
 
     // Names as they were heard on pi5 (2026-10-25).
     PHI_CHECK(scoreArtist("Robbie Williams", "robin williams") >= 85);

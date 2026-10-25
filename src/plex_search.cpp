@@ -174,7 +174,18 @@ int scoreTitle(const std::string &titleText, const std::string &titleQuery)
     if (distance * 5 <= longer) return static_cast<int>(100 - (distance * 100 + longer - 1) / longer);
     if (contains(title, q) && q.size() * 2 >= title.size()) return 85;
     if (contains(q, title) && title.size() * 2 >= q.size()) return 75;
-    return 0;
+    // By sound, word for word: every word of the title has the consonants of
+    // the word said in its place ("viel" for "Feel", pi5 2026-10-25). Only
+    // ever asked among one artist's tracks, so a collision is one of theirs.
+    const std::vector<std::string> said = normalisedWords(titleQuery);
+    const std::vector<std::string> words = normalisedWords(titleText);
+    if (said.size() != words.size()) return 0;
+    for (std::size_t i = 0; i < said.size(); ++i) {
+        if (said[i].size() < 3 || words[i].size() < 3) return 0;
+        const std::string a = skeleton(said[i]);
+        if (a.empty() || a != skeleton(words[i])) return 0;
+    }
+    return 60;
 }
 
 namespace {
