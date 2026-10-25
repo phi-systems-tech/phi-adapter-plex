@@ -178,6 +178,10 @@ void testSearchScores()
     PHI_CHECK(scoreTrack(stars, "thank you stars katie melua") == 100);
     PHI_CHECK(scoreTrack(stars, "katie melua thank you stars please") == 95);
     PHI_CHECK(scoreTrack(stars, "bicycles") == 0);
+    Track aria;
+    aria.title = "Kálmán: Die Csárdásfürstin - Ich Warte Auf Das Große Wunder";
+    aria.artist = "Anneliese Rothenberger";
+    PHI_CHECK(scoreTrack(aria, "warte") == 0);
     // A title a letter off, as a transcriber writes it.
     PHI_CHECK(scoreTitle("Thankyou, Stars", "thank you starrs") >= 90);
     PHI_CHECK(scoreTitle("Thankyou, Stars", "thank you stars") == 100);

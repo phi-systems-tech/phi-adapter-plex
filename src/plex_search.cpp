@@ -157,8 +157,11 @@ int scoreTrack(const Track &track, const std::string &query)
     if (q.empty() || title.empty()) return 0;
     if (q == artist + title || q == title + artist || q == title) return 100;
     if (contains(q, title) && contains(q, artist)) return 95;
-    if (contains(title, q)) return 80;
-    if (contains(q, title)) return 70;
+    // Only where what was said is most of the title: "warte" - a misheard
+    // "weiter" - is a word somewhere in "Die Csárdásfürstin - Ich warte auf
+    // das große Wunder", and played it (pi5, 2026-10-25).
+    if (contains(title, q) && q.size() * 2 >= title.size()) return 80;
+    if (contains(q, title) && title.size() * 2 >= q.size()) return 70;
     return 0;
 }
 
