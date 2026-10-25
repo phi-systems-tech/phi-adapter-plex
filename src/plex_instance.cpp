@@ -5,6 +5,8 @@
 #include <deque>
 #include <functional>
 #include <optional>
+#include <random>
+#include <vector>
 #include <utility>
 
 #include "phi/adapter/net/http_client.h"
@@ -102,7 +104,6 @@ protected:
         auto search = std::make_shared<Search>();
         search->cmdId = request.cmdId();
         search->query = query;
-        search->splits = splits(query, kMaxSplits);
         searchWhole(std::move(search));
     }
 
@@ -138,12 +139,15 @@ private:
     enum class Lifecycle { Idle, Running, Paused, Stopped };
 
     static constexpr const char *kSearchAction = "media.search";
-    /// How many artist/title splits of a query are tried before giving up:
-    /// "katy melua thank you stars" is three requests at most on top of the
-    /// whole-query one.
-    static constexpr std::size_t kMaxSplits = 3;
     static constexpr int kHubLimit = 10;
     static constexpr std::size_t kItemLimit = 5;
+    /// A whole-query hit this good needs no artist reading on top.
+    static constexpr int kConfident = 90;
+    /// How many artists' tracks are read for one query.
+    static constexpr std::size_t kArtistFetches = 2;
+    /// The artist list is read once and kept this long: a library grows by
+    /// an album now and then, not by the minute.
+    static constexpr std::int64_t kArtistsMaxAgeMs = 15 * 60 * 1000;
 
     struct Pending {
         v1::CmdId cmdId = 0;
@@ -154,13 +158,13 @@ private:
         net::HttpClient::Done done;
     };
 
-    /// One `media.search` in flight: the whole query first, then the splits
-    /// (plex_search.h), then the token for the answer.
+    /// One `media.search` in flight: the whole query, then the artists'
+    /// readings (plex_search.h), then the token for the answer.
     struct Search {
         v1::CmdId cmdId = 0;
         std::string query;
-        std::vector<Split> splits;
-        std::size_t nextSplit = 0;
+        std::vector<ArtistGuess> guesses;
+        std::vector<Artist> toFetch;
         std::vector<Track> found;
     };
 
@@ -172,57 +176,88 @@ private:
                 failSearch(*search, result);
                 return;
             }
-            SearchHubs hubs = parseHubs(result.body());
-            for (Track &track : hubs.tracks) {
+            int best = 0;
+            for (Track &track : parseHubs(result.body()).tracks) {
                 track.score = scoreTrack(track, search->query);
+                best = std::max(best, track.score);
                 if (track.score > 0) search->found.push_back(track);
             }
-            if (!search->found.empty())
+            if (best >= kConfident)
                 finishSearch(std::move(search));
             else
-                searchSplit(std::move(search));
+                withArtists(std::move(search));
         });
     }
 
-    void searchSplit(std::shared_ptr<Search> search)
+    /// The library's artists, read when missing or old, then the readings.
+    void withArtists(std::shared_ptr<Search> search)
     {
-        if (search->nextSplit >= search->splits.size()) {
+        if (!m_artists.empty() && nowMs() - m_artistsAtMs < kArtistsMaxAgeMs) {
+            searchArtists(std::move(search));
+            return;
+        }
+        enqueueAction(search->cmdId, serverCall(m_settings, sectionsPath()),
+                      [this, search](net::HttpClient::Result result) {
+            if (!result.ok()) {
+                failSearch(*search, result);
+                return;
+            }
+            auto sections = std::make_shared<std::vector<std::string>>(parseMusicSections(result.body()));
+            auto artists = std::make_shared<std::vector<Artist>>();
+            readArtistSections(std::move(search), std::move(sections), std::move(artists));
+        });
+    }
+
+    void readArtistSections(std::shared_ptr<Search> search, std::shared_ptr<std::vector<std::string>> sections,
+                            std::shared_ptr<std::vector<Artist>> artists)
+    {
+        if (sections->empty()) {
+            m_artists = std::move(*artists);
+            m_artistsAtMs = nowMs();
+            searchArtists(std::move(search));
+            return;
+        }
+        const std::string key = sections->back();
+        sections->pop_back();
+        enqueueAction(search->cmdId, serverCall(m_settings, artistsPath(key)),
+                      [this, search, sections, artists](net::HttpClient::Result result) {
+            if (!result.ok()) {
+                failSearch(*search, result);
+                return;
+            }
+            std::vector<Artist> more = parseArtists(result.body());
+            artists->insert(artists->end(), more.begin(), more.end());
+            readArtistSections(search, sections, artists);
+        });
+    }
+
+    void searchArtists(std::shared_ptr<Search> search)
+    {
+        search->guesses = guessArtists(m_artists, search->query);
+        search->toFetch = artistsToFetch(search->guesses, kArtistFetches);
+        fetchNextArtist(std::move(search));
+    }
+
+    void fetchNextArtist(std::shared_ptr<Search> search)
+    {
+        if (search->toFetch.empty()) {
             finishSearch(std::move(search));
             return;
         }
-        const Split split = search->splits[search->nextSplit++];
-        enqueueAction(search->cmdId, serverCall(m_settings, hubsSearchPath(split.artist, 3)),
-                      [this, search, split](net::HttpClient::Result result) {
+        const Artist artist = search->toFetch.front();
+        search->toFetch.erase(search->toFetch.begin());
+        enqueueAction(search->cmdId, serverCall(m_settings, artistTracksPath(artist.ratingKey)),
+                      [this, search, artist](net::HttpClient::Result result) {
             if (!result.ok()) {
                 failSearch(*search, result);
                 return;
             }
-            const SearchHubs hubs = parseHubs(result.body());
-            if (!hubs.artistKey.empty())
-                matchTracks(std::move(search), artistTracksPath(hubs.artistKey), split.title);
-            else if (!hubs.albumKey.empty())
-                matchTracks(std::move(search), albumTracksPath(hubs.albumKey), split.title);
-            else
-                searchSplit(std::move(search));
-        });
-    }
-
-    void matchTracks(std::shared_ptr<Search> search, const std::string &path, const std::string &title)
-    {
-        enqueueAction(search->cmdId, serverCall(m_settings, path),
-                      [this, search, title](net::HttpClient::Result result) {
-            if (!result.ok()) {
-                failSearch(*search, result);
-                return;
-            }
-            for (Track &track : parseTracks(result.body())) {
-                track.score = scoreTitle(track, title);
-                if (track.score > 0) search->found.push_back(track);
-            }
-            if (!search->found.empty())
-                finishSearch(std::move(search));
-            else
-                searchSplit(std::move(search));
+            std::vector<Track> matched = matchArtistTracks(parseTracks(result.body()), search->guesses,
+                                                           artist.ratingKey, [this](std::size_t n) {
+                                                               return std::uniform_int_distribution<std::size_t>(0, n - 1)(m_random);
+                                                           });
+            search->found.insert(search->found.end(), matched.begin(), matched.end());
+            fetchNextArtist(search);
         });
     }
 
@@ -395,6 +430,9 @@ private:
     std::optional<Pending> m_active;
     std::uint64_t m_commandId = 0;
     bool m_connected = false;
+    std::vector<Artist> m_artists;
+    std::int64_t m_artistsAtMs = 0;
+    std::mt19937 m_random{std::random_device{}()};
 };
 
 } // namespace

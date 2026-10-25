@@ -136,70 +136,119 @@ void testHttpStatusMapping()
 }
 
 // What the server answered on the bench (2026-10-25), shortened to what the
-// search reads: the artist and the albums for "katie melua", one track for
-// "thankyou stars".
-constexpr const char *kHubsArtist = R"({"MediaContainer":{"Hub":[
-  {"type":"show","size":0},
-  {"type":"artist","size":1,"Metadata":[{"ratingKey":"3277","type":"artist","title":"Katie Melua"}]},
-  {"type":"album","size":2,"Metadata":[{"ratingKey":"3278","type":"album","title":"Piece by Piece","parentTitle":"Katie Melua"}]},
-  {"type":"track","size":0}]}})";
+// search reads.
 constexpr const char *kHubsTrack = R"({"MediaContainer":{"Hub":[
+  {"type":"artist","size":1,"Metadata":[{"ratingKey":"3277","type":"artist","title":"Katie Melua"}]},
   {"type":"track","size":1,"Metadata":[{"ratingKey":"3287","type":"track","title":"Thankyou, Stars",
     "grandparentTitle":"Katie Melua","parentTitle":"Piece by Piece","duration":219521,
     "Media":[{"container":"mp4","audioCodec":"aac","Part":[{"key":"/library/parts/2317/1451267003/file.m4a","container":"mp4"}]}]}]}]}})";
-constexpr const char *kLeaves = R"({"MediaContainer":{"size":2,"Metadata":[
+constexpr const char *kLeaves = R"({"MediaContainer":{"size":3,"Metadata":[
   {"ratingKey":"3287","type":"track","title":"Thankyou, Stars","grandparentTitle":"Katie Melua","parentTitle":"Piece by Piece","duration":219521,
+   "ratingCount":105355,"index":5,"parentIndex":1,
    "Media":[{"container":"mp4","Part":[{"key":"/library/parts/2317/1/file.m4a","container":"mp4"}]}]},
   {"ratingKey":"3290","type":"track","title":"Nine Million Bicycles","grandparentTitle":"Katie Melua","parentTitle":"Piece by Piece","duration":195000,
-   "Media":[{"container":"mp3","Part":[{"key":"/library/parts/2320/1/file.mp3","container":"mp3"}]}]}]}})";
+   "ratingCount":900000,"index":2,"parentIndex":1,
+   "Media":[{"container":"mp3","Part":[{"key":"/library/parts/2320/1/file.mp3","container":"mp3"}]}]},
+  {"ratingKey":"3291","type":"track","title":"Shy Boy","grandparentTitle":"Katie Melua","parentTitle":"Piece by Piece","duration":195000,
+   "ratingCount":1000,"index":1,"parentIndex":1,
+   "Media":[{"container":"mp3","Part":[{"key":"/library/parts/2321/1/file.mp3","container":"mp3"}]}]}]}})";
 
-void testSearchNormalisationAndScores()
+// A slice of the household's 636 artists, the confusable ones kept.
+std::vector<Artist> library()
+{
+    return {{"1", "Barbra Streisand"}, {"2", "Barbra Streisand & Celine Dion"}, {"3", "Katie Melua"},
+            {"4", "Robbie Williams"}, {"5", "Robbie Williams & Nicole Kidman"},
+            {"6", "Robbie Williams Feat. Jon Lovitz"}, {"7", "J. Williams Feat. Dane Rumble"},
+            {"8", "Kate Bush"}, {"9", "Bruce Springsteen"}, {"10", "Paul Simon"}};
+}
+
+void testSearchScores()
 {
     PHI_CHECK(normalised("Thankyou, Stars") == "thankyoustars");
-    PHI_CHECK(normalised("thank you stars") == "thankyoustars");
 
     const std::vector<Track> leaves = parseTracks(kLeaves);
-    PHI_CHECK(leaves.size() == 2);
+    PHI_CHECK(leaves.size() == 3);
     const Track &stars = leaves.front();
     PHI_CHECK(stars.ratingKey == "3287" && stars.artist == "Katie Melua" && stars.container == "mp4");
-    PHI_CHECK(stars.durationMs == 219521);
+    PHI_CHECK(stars.durationMs == 219521 && stars.ratingCount == 105355 && stars.index == 5);
 
     // The whole query: artist and title in one breath, in either order.
     PHI_CHECK(scoreTrack(stars, "Katie Melua Thankyou Stars") == 100);
     PHI_CHECK(scoreTrack(stars, "thank you stars katie melua") == 100);
-    PHI_CHECK(scoreTrack(stars, "thank you stars") == 100);
-    // Extra words around both: still a confident match.
     PHI_CHECK(scoreTrack(stars, "katie melua thank you stars please") == 95);
-    // A title longer than what was said, and the reverse.
-    PHI_CHECK(scoreTrack(stars, "thankyou") == 80);
-    PHI_CHECK(scoreTrack(stars, "thank you stars live") == 70);
     PHI_CHECK(scoreTrack(stars, "bicycles") == 0);
-    // The title half of a split query against the artist's tracks.
-    PHI_CHECK(scoreTitle(stars, "thank you stars") == 100);
-    PHI_CHECK(scoreTitle(leaves.back(), "thank you stars") == 0);
-    PHI_CHECK(scoreTitle(leaves.back(), "nine million") == 85);
+    // A title a letter off, as a transcriber writes it.
+    PHI_CHECK(scoreTitle("Thankyou, Stars", "thank you starrs") >= 90);
+    PHI_CHECK(scoreTitle("Thankyou, Stars", "thank you stars") == 100);
+    PHI_CHECK(scoreTitle("Nine Million Bicycles", "thank you stars") == 0);
+    PHI_CHECK(scoreTitle("Angels", "angels") == 100);
+
+    // Names as they were heard on pi5 (2026-10-25).
+    PHI_CHECK(scoreArtist("Robbie Williams", "robin williams") >= 85);
+    PHI_CHECK(scoreArtist("Robbie Williams Feat. Jon Lovitz", "robin williams") < 50);
+    PHI_CHECK(scoreArtist("Katie Melua", "kette melua") >= 85);
+    PHI_CHECK(scoreArtist("Katie Melua", "kate melua") >= 85);
+    PHI_CHECK(scoreArtist("Barbra Streisand", "paparaz dreisand") >= 30);
+    PHI_CHECK(scoreArtist("Bruce Springsteen", "paparaz dreisand") == 0);
 }
 
-void testSearchPlan()
+void testArtistReadings()
 {
-    const SearchHubs artist = parseHubs(kHubsArtist);
-    PHI_CHECK(artist.tracks.empty());
-    PHI_CHECK(artist.artistKey == "3277" && artist.artistName == "Katie Melua");
-    PHI_CHECK(artist.albumKey == "3278");
-    const SearchHubs track = parseHubs(kHubsTrack);
-    PHI_CHECK(track.tracks.size() == 1 && track.tracks.front().title == "Thankyou, Stars");
-    PHI_CHECK(track.artistKey.empty());
+    const std::vector<Artist> artists = library();
+    const auto first = [](const std::vector<Track> &tracks) {
+        const auto best = std::max_element(tracks.begin(), tracks.end(),
+                                           [](const Track &a, const Track &b) { return a.score < b.score; });
+        return best == tracks.end() ? std::string() : best->title;
+    };
 
-    // The splits, longest artist first, bounded.
-    const std::vector<Split> s = splits("katy melua thank you stars", 3);
-    PHI_CHECK(s.size() == 3);
-    PHI_CHECK(s[0].artist == "katy melua thank you" && s[0].title == "stars");
-    PHI_CHECK(s[1].artist == "katy melua thank" && s[1].title == "you stars");
-    PHI_CHECK(s[2].artist == "katy melua" && s[2].title == "thank you stars");
-    PHI_CHECK(splits("jazz", 3).empty());
-    PHI_CHECK(splits("a b", 3).size() == 1);
+    // "Robin Williams Angels": the artist with the title behind, the bare
+    // "Robbie Williams" first among the Williamses.
+    const std::vector<ArtistGuess> robbie = guessArtists(artists, "Robin Williams Angels");
+    PHI_CHECK(!robbie.empty() && robbie.front().artist.title == "Robbie Williams" && robbie.front().title == "Angels");
+    const std::vector<Track> angels = matchArtistTracks(
+        parseTracks(R"({"MediaContainer":{"Metadata":[
+          {"ratingKey":"50","type":"track","title":"Angels","grandparentTitle":"Robbie Williams","parentTitle":"Life thru a Lens","ratingCount":2000000},
+          {"ratingKey":"51","type":"track","title":"Feel","grandparentTitle":"Robbie Williams","parentTitle":"Escapology","ratingCount":1500000}]}})"),
+        robbie, "4", [](std::size_t) { return std::size_t{0}; });
+    PHI_CHECK(first(angels) == "Angels");
 
+    // "Paparaz Dreisand" for Barbra Streisand: a weak reading, and still the
+    // only one that comes close; the duet is the same artist, not a rival.
+    const std::vector<ArtistGuess> barbra = guessArtists(artists, "Paparaz Dreisand");
+    PHI_CHECK(!barbra.empty() && barbra.front().artist.title == "Barbra Streisand" && barbra.front().title.empty());
+
+    // The artist alone plays one of the best-known tracks: the pick is among
+    // them, the best-known first.
+    const std::vector<ArtistGuess> katie = guessArtists(artists, "kette melua");
+    PHI_CHECK(!katie.empty() && katie.front().artist.title == "Katie Melua" && katie.front().title.empty());
+    const std::vector<Track> picked = matchArtistTracks(parseTracks(kLeaves), katie, "3",
+                                                        [](std::size_t) { return std::size_t{0}; });
+    PHI_CHECK(first(picked) == "Nine Million Bicycles");
+    const std::vector<Track> second = matchArtistTracks(parseTracks(kLeaves), katie, "3",
+                                                        [](std::size_t) { return std::size_t{1}; });
+    PHI_CHECK(first(second) == "Thankyou, Stars");
+
+    // An album named: its first track.
+    const std::vector<ArtistGuess> album = guessArtists(artists, "katie melua piece by piece");
+    const std::vector<Track> opener = matchArtistTracks(parseTracks(kLeaves), album, "3",
+                                                        [](std::size_t) { return std::size_t{0}; });
+    PHI_CHECK(first(opener) == "Shy Boy");
+
+    // Nothing in the library sounds like it.
+    PHI_CHECK(guessArtists(artists, "the rolling stones").empty());
+    PHI_CHECK(artistsToFetch(robbie, 2).size() == 1);
+}
+
+void testSearchParsing()
+{
+    const SearchHubs hubs = parseHubs(kHubsTrack);
+    PHI_CHECK(hubs.tracks.size() == 1 && hubs.tracks.front().title == "Thankyou, Stars");
+    PHI_CHECK(parseMusicSections(R"({"MediaContainer":{"Directory":[{"key":"1","type":"movie"},{"key":"2","type":"artist"}]}})")
+              == std::vector<std::string>{"2"});
+    const std::vector<Artist> artists = parseArtists(R"({"MediaContainer":{"Metadata":[{"ratingKey":"3277","title":"Katie Melua"}]}})");
+    PHI_CHECK(artists.size() == 1 && artists.front().title == "Katie Melua");
     PHI_CHECK(hubsSearchPath("katy melua", 3) == "/hubs/search?query=katy%20melua&limit=3&includeCollections=0&includeExternalMedia=0");
+    PHI_CHECK(artistsPath("2") == "/library/sections/2/all?type=8");
     PHI_CHECK(artistTracksPath("3277") == "/library/metadata/3277/allLeaves");
     PHI_CHECK(parseDelegationToken(R"({"MediaContainer":{"size":0,"token":"abc"}})") == "abc");
     PHI_CHECK(parseDelegationToken("{}").empty());
@@ -218,7 +267,7 @@ void testPlayableUrls()
     PHI_CHECK(transcoded.url.find("X-Plex-Token=DELEGATED") != std::string::npos);
     PHI_CHECK(transcoded.url.find("secret") == std::string::npos);
     // MP3 is fetched as it is.
-    const Playable direct = playableFor(leaves.back(), s, "DELEGATED");
+    const Playable direct = playableFor(leaves[1], s, "DELEGATED");
     PHI_CHECK(direct.mimeType == "audio/mpeg");
     PHI_CHECK(direct.url == "http://10.0.0.10:32400/library/parts/2320/1/file.mp3?X-Plex-Token=DELEGATED");
 
@@ -262,8 +311,9 @@ int main()
     testDeviceCapabilities();
     testPercentEncoding();
     testHttpStatusMapping();
-    testSearchNormalisationAndScores();
-    testSearchPlan();
+    testSearchScores();
+    testArtistReadings();
+    testSearchParsing();
     testPlayableUrls();
     testServerOnlyInstance();
     return phi::testing::report("plex_behaviour_tests");

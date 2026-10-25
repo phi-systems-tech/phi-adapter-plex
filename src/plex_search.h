@@ -3,20 +3,24 @@
 // Stars", answered as items a player can fetch.
 //
 // Plex's own search finds "Katie" for "katy" but not "Thankyou, Stars" for
-// "thank you stars", and nothing at all for an artist and a title in one
-// breath - the way a sentence says it. So the search is ours and Plex only
-// supplies the candidates: the whole query first; then, with the words split
-// into an artist's name in front and a title behind, the artist's tracks
-// matched by a normalised title (letters and digits only, so "Thankyou" and
-// "thank you" are one word). Every step is one HTTP request, planned here as
-// data and carried out by the instance, so the plan and the matching are
-// tested without a server.
+// "thank you stars", nothing for an artist and a title in one breath - the
+// way a sentence says it - and nothing at all for what a transcriber made of
+// a name ("Paparaz Dreisand" for Barbra Streisand, "kette melua"). So Plex is
+// asked once with the whole query, and then the search is ours: the library's
+// artists (listed once and kept) are matched against every front part of the
+// query word by word - a word equal, a letter or two off, or the same
+// consonants once the ones that sound alike are merged - and the best artists'
+// tracks are matched against the rest, by title or by album. A query that is
+// only an artist plays one of the artist's best-known tracks. Every step is
+// data here and one HTTP request in the instance, so the matching is tested
+// without a server.
 //
 // A match is played through a URL the player fetches itself: the part as it
 // is for MP3, FLAC and WAV (the satellite decodes those), the universal
 // transcoder's MP3 for anything else, both with a delegation token minted for
 // this answer - the server's own token never leaves the adapter.
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -32,6 +36,10 @@ struct Track {
     std::string artist;
     std::string album;
     std::int64_t durationMs = 0;
+    /// Last.fm's listener count as Plex keeps it: how well known a track is.
+    std::int64_t ratingCount = 0;
+    int index = 0;       ///< position on its album
+    int parentIndex = 0; ///< disc
     /// The part's path on the server and its container ("mp3", "mp4"...).
     std::string partKey;
     std::string container;
@@ -39,14 +47,14 @@ struct Track {
     int score = 0;
 };
 
+struct Artist {
+    std::string ratingKey;
+    std::string title;
+};
+
 /// What one `/hubs/search` answer holds that the search can use.
 struct SearchHubs {
     std::vector<Track> tracks;
-    /// First artist and album hits, by ratingKey, for the split search.
-    std::string artistKey;
-    std::string artistName;
-    std::string albumKey;
-    std::string albumName;
 };
 
 /// Letters and digits only, lowercased: "Thankyou, Stars" and "thank you
@@ -57,32 +65,52 @@ std::string normalised(const std::string &text);
 /// How well a track answers the whole query (artist and title in any order,
 /// extra words tolerated), 0 when it does not.
 int scoreTrack(const Track &track, const std::string &query);
-/// How well a track's title answers the title part of a split query, when
-/// the artist already matched.
-int scoreTitle(const Track &track, const std::string &titleQuery);
+/// How well a title answers what was said for it: equal, contained, or a
+/// few letters off ("thank you starrs"), 0 when none.
+int scoreTitle(const std::string &title, const std::string &titleQuery);
+/// How well an artist's name answers what was said for it, word by word.
+/// Words of the name nobody said count against it, so "Robbie Williams"
+/// beats "Robbie Williams Feat. Jon Lovitz" for "robin williams".
+int scoreArtist(const std::string &artistName, const std::string &artistQuery);
 
-/// `/hubs/search` JSON into tracks and the first artist and album.
+/// One reading of the query: its first `words` words name `artist`, the
+/// rest is the title (empty: the artist alone).
+struct ArtistGuess {
+    Artist artist;
+    int score = 0;
+    std::string title;
+};
+/// Every front part of the query against every artist, the readings worth
+/// following, best first. A reading is worth it at 50, or at 30 when nothing
+/// else comes close - a transcriber's "Paparaz Dreisand" still names one
+/// artist far better than any other.
+std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const std::string &query);
+/// The distinct artists of the guesses, best first, at most `limit`.
+std::vector<Artist> artistsToFetch(const std::vector<ArtistGuess> &guesses, std::size_t limit);
+/// The artist's tracks scored against every guess for that artist: a title
+/// or an album named, or, for the artist alone, one of the best-known tracks -
+/// `pick` chooses among the ten best-known (a random index in the instance,
+/// fixed in tests) so asking twice does not always play the same song.
+std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vector<ArtistGuess> &guesses,
+                                     const std::string &artistKey, const std::function<std::size_t(std::size_t)> &pick);
+
+/// `/hubs/search` JSON into its tracks.
 SearchHubs parseHubs(const std::string &body);
-/// `/library/metadata/<key>/allLeaves` or `.../children` JSON into tracks.
+/// `/library/metadata/<key>/allLeaves` JSON into tracks.
 std::vector<Track> parseTracks(const std::string &body);
+/// `/library/sections` JSON into the keys of the music sections.
+std::vector<std::string> parseMusicSections(const std::string &body);
+/// `/library/sections/<key>/all?type=8` JSON into artists.
+std::vector<Artist> parseArtists(const std::string &body);
 /// `/security/token` JSON into the delegation token; empty when none.
 std::string parseDelegationToken(const std::string &body);
 
 /// The server paths of the search, in the order they are asked.
 std::string hubsSearchPath(const std::string &query, int limit);
+std::string sectionsPath();
+std::string artistsPath(const std::string &sectionKey);
 std::string artistTracksPath(const std::string &artistKey);
-std::string albumTracksPath(const std::string &albumKey);
 std::string delegationTokenPath();
-
-/// The ways a query splits into an artist in front and a title behind:
-/// "katy melua thank you stars" is tried as "katy melua" + "thank you
-/// stars", "katy" + "melua thank you stars". The longest artist first, at
-/// most `maxTries`. One word cannot split.
-struct Split {
-    std::string artist;
-    std::string title;
-};
-std::vector<Split> splits(const std::string &query, std::size_t maxTries);
 
 /// The playable URL and MIME type of a track, with the token minted for it.
 struct Playable {
@@ -92,7 +120,7 @@ struct Playable {
 Playable playableFor(const Track &track, const PlexSettings &settings, const std::string &delegationToken);
 
 /// The action's answer: the best `limit` tracks as the README's items, the
-/// highest score first.
+/// highest score first, each track once.
 Json itemsJson(std::vector<Track> tracks, const PlexSettings &settings, const std::string &delegationToken,
                std::size_t limit);
 
