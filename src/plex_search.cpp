@@ -155,7 +155,11 @@ int scoreTrack(const Track &track, const std::string &query)
     const std::string title = normalised(track.title);
     const std::string artist = normalised(track.artist);
     if (q.empty() || title.empty()) return 0;
-    if (q == artist + title || q == title + artist || q == title) return 100;
+    if (q == artist + title || q == title + artist) return 100;
+    // A title alone that is all that was said: just under an artist of that
+    // name, so "Barbra Streisand" is the singer, not Duck Sauce's song of
+    // that title (bench, 2026-10-25).
+    if (q == title) return 96;
     if (contains(q, title) && contains(q, artist)) return 95;
     // Only where what was said is most of the title: "warte" - a misheard
     // "weiter" - is a word somewhere in "Die Csárdásfürstin - Ich warte auf
@@ -358,7 +362,9 @@ std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vecto
             // found Angels, and "Robbie Williams" alone still plays at 95.
             for (std::size_t k = 0; k < std::min<std::size_t>(3, known.size()); ++k) {
                 Track t = known[(first + k) % known.size()];
-                t.score = std::max(0, guess.score - 5 - static_cast<int>(k));
+                // The artist said exactly is the artist: 100 for the pick.
+                const int base = guess.score >= 100 ? 100 : guess.score - 5;
+                t.score = std::max(0, base - static_cast<int>(k));
                 out.push_back(std::move(t));
             }
             continue;

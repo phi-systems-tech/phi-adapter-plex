@@ -146,8 +146,10 @@ private:
     static constexpr const char *kSearchAction = "media.search";
     static constexpr int kHubLimit = 10;
     static constexpr std::size_t kItemLimit = 5;
-    /// A whole-query hit this good needs no artist reading on top.
-    static constexpr int kConfident = 90;
+    /// Only an exact artist-and-title hit needs no artist reading on top: a
+    /// title alone that matches ("Barbra Streisand", a song by Duck Sauce)
+    /// must meet the artist of that name (bench, 2026-10-25).
+    static constexpr int kConfident = 100;
     /// How many artists' tracks are read for one query.
     static constexpr std::size_t kArtistFetches = 2;
 
