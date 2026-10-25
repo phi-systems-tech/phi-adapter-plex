@@ -81,7 +81,8 @@ struct ArtistGuess {
     std::string title;
 };
 /// Every front part of the query against every artist, the readings worth
-/// following, best first. A reading is worth it at 50, or at 30 when nothing
+/// following, best first. A reading is worth it at 50 (60 for the artist
+/// alone, which nothing confirms), or at 30 when nothing
 /// else comes close - a transcriber's "Paparaz Dreisand" still names one
 /// artist far better than any other.
 std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const std::string &query);

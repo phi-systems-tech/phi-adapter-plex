@@ -82,7 +82,7 @@ std::string skeleton(const std::string &word)
 }
 
 /// How alike two normalised words are: 1 equal, 0.9 a letter or two off,
-/// 0.75 the same skeleton give or take one, 0 otherwise.
+/// 0.6 the same skeleton give or take one, 0 otherwise.
 double wordLikeness(const std::string &said, const std::string &name)
 {
     if (said == name) return 1.0;
@@ -94,7 +94,7 @@ double wordLikeness(const std::string &said, const std::string &name)
     if (lengthGap > 2 || said.front() != name.front()) return 0.0;
     const std::string a = skeleton(said);
     const std::string b = skeleton(name);
-    if (a.size() >= 2 && b.size() >= 2 && editDistance(a, b) <= 1) return 0.75;
+    if (a.size() >= 2 && b.size() >= 2 && editDistance(a, b) <= 1) return 0.6;
     return 0.0;
 }
 
@@ -177,7 +177,35 @@ int scoreTitle(const std::string &titleText, const std::string &titleQuery)
     return 0;
 }
 
+namespace {
+
+/// The name and what was said, both written together: a transcriber cuts
+/// a name it does not know at the wrong places ("Kat im Lua" for Katie
+/// Melua, pi5 2026-10-25), and written together the two are two letters
+/// apart. Only for eight letters or more, and a quarter of them at most.
+int joinedScore(const std::string &artistName, const std::string &artistQuery)
+{
+    const std::string said = normalised(artistQuery);
+    const std::string name = normalised(artistName);
+    if (said.size() < 8 || name.size() < 8) return 0;
+    const std::size_t longer = std::max(said.size(), name.size());
+    const std::size_t distance = editDistance(said, name);
+    if (distance * 4 > longer) return 0;
+    return static_cast<int>(100 - (distance * 100 + longer - 1) / longer);
+}
+
+int wordScore(const std::string &artistName, const std::string &artistQuery);
+
+} // namespace
+
 int scoreArtist(const std::string &artistName, const std::string &artistQuery)
+{
+    return std::max(wordScore(artistName, artistQuery), joinedScore(artistName, artistQuery));
+}
+
+namespace {
+
+int wordScore(const std::string &artistName, const std::string &artistQuery)
 {
     const std::vector<std::string> said = normalisedWords(artistQuery);
     const std::vector<std::string> name = normalisedWords(artistName);
@@ -213,6 +241,8 @@ int scoreArtist(const std::string &artistName, const std::string &artistQuery)
     return total > 0.0 ? static_cast<int>(100.0 * matched / total + 0.5) : 0;
 }
 
+} // namespace
+
 std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const std::string &query)
 {
     const std::vector<std::string> words = wordsOf(query);
@@ -239,7 +269,11 @@ std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const 
                 second = score;
             }
         }
-        const bool worth = best.score >= 50 || (best.score >= 30 && best.score >= 2 * second);
+        // The artist alone is played at once, with no title to confirm it, so
+        // it needs more: "pink floyd money" sounded enough like "Pink Feat.
+        // James T. Moore" at 50 to play one of his songs.
+        const int needed = title.empty() ? 60 : 50;
+        const bool worth = best.score >= needed || (best.score >= 30 && best.score >= 2 * second);
         if (worth) out.push_back(std::move(best));
         if (n == 1) break;
     }

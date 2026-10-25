@@ -186,10 +186,13 @@ void testSearchScores()
     // Names as they were heard on pi5 (2026-10-25).
     PHI_CHECK(scoreArtist("Robbie Williams", "robin williams") >= 85);
     PHI_CHECK(scoreArtist("Robbie Williams Feat. Jon Lovitz", "robin williams") < 50);
-    PHI_CHECK(scoreArtist("Katie Melua", "kette melua") >= 85);
+    PHI_CHECK(scoreArtist("Katie Melua", "kette melua") >= 75);
     PHI_CHECK(scoreArtist("Katie Melua", "kate melua") >= 85);
     PHI_CHECK(scoreArtist("Barbra Streisand", "paparaz dreisand") >= 30);
     PHI_CHECK(scoreArtist("Bruce Springsteen", "paparaz dreisand") == 0);
+    // Cut at the wrong places: written together it is two letters off.
+    PHI_CHECK(scoreArtist("Katie Melua", "Kat im Lua") >= 75);
+    PHI_CHECK(scoreArtist("Katie Melua", "kat") == 0);
 }
 
 void testArtistReadings()
