@@ -146,6 +146,7 @@ private:
     static constexpr const char *kSearchAction = "media.search";
     static constexpr int kHubLimit = 10;
     static constexpr std::size_t kItemLimit = 5;
+    static constexpr std::size_t kNearNames = 5;
     /// Only an exact artist-and-title hit needs no artist reading on top: a
     /// title alone that matches ("Barbra Streisand", a song by Duck Sauce)
     /// must meet the artist of that name (bench, 2026-10-25).
@@ -170,6 +171,7 @@ private:
         std::vector<ArtistGuess> guesses;
         std::vector<Artist> toFetch;
         std::vector<Track> found;
+        bool artistsRead = false;
     };
 
     void searchWhole(std::shared_ptr<Search> search)
@@ -245,6 +247,7 @@ private:
 
     void searchArtists(std::shared_ptr<Search> search)
     {
+        search->artistsRead = true;
         search->guesses = guessArtists(m_artists, search->query);
         search->toFetch = artistsToFetch(search->guesses, kArtistFetches);
         fetchNextArtist(std::move(search));
@@ -275,14 +278,21 @@ private:
 
     void finishSearch(std::shared_ptr<Search> search)
     {
+        // The names a reading might have meant, for the caller to read the
+        // sentence again with (the voice transport's library hint); only
+        // where the artists were looked at, which a perfect title skips.
+        Json names = Json::array();
+        if (search->artistsRead)
+            for (std::string &name : nearestArtistNames(m_artists, search->query, kNearNames)) names.push_back(std::move(name));
         if (search->found.empty()) {
-            sendAction(v1::ActionResponse::success(search->cmdId)
-                           .setData(dump(itemsJson({}, m_settings, {}, kItemLimit))));
+            Json answer = itemsJson({}, m_settings, {}, kItemLimit);
+            answer["names"] = std::move(names);
+            sendAction(v1::ActionResponse::success(search->cmdId).setData(dump(answer)));
             return;
         }
         // A token minted for this answer: the server's own never leaves here.
         enqueueAction(search->cmdId, serverCall(m_settings, delegationTokenPath()),
-                      [this, search](net::HttpClient::Result result) {
+                      [this, search, names = std::move(names)](net::HttpClient::Result result) mutable {
             if (!result.ok()) {
                 failSearch(*search, result);
                 return;
@@ -293,8 +303,9 @@ private:
                              "The server did not mint a delegation token");
                 return;
             }
-            sendAction(v1::ActionResponse::success(search->cmdId)
-                           .setData(dump(itemsJson(search->found, m_settings, token, kItemLimit))));
+            Json answer = itemsJson(search->found, m_settings, token, kItemLimit);
+            answer["names"] = std::move(names);
+            sendAction(v1::ActionResponse::success(search->cmdId).setData(dump(answer)));
         });
     }
 

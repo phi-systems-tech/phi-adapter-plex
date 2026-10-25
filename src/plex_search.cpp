@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <map>
 #include <set>
 
@@ -527,6 +528,55 @@ Json itemsJson(std::vector<Track> tracks, const PlexSettings &settings, const st
         });
     }
     return Json{{"items", items}};
+}
+
+
+namespace {
+
+std::set<std::string> letterTriples(const std::string &text)
+{
+    std::string letters = "  ";
+    for (const std::string &word : normalisedWords(text)) letters += word;
+    letters += ' ';
+    std::set<std::string> out;
+    for (std::size_t i = 0; i + 3 <= letters.size(); ++i) out.insert(letters.substr(i, 3));
+    return out;
+}
+
+/// "Robbie Williams Feat. Jon Lovitz" -> "Robbie Williams": a name as said.
+std::string bareName(const std::string &name)
+{
+    std::string out = name;
+    const std::string lower = str::toLower(name);
+    for (const char *cut : {" feat. ", " feat ", " featuring ", " ft. ", " & ", ";"}) {
+        const std::size_t at = lower.find(cut);
+        if (at != std::string::npos && at < out.size()) out = out.substr(0, std::min(out.size(), at));
+    }
+    return str::trimmed(out);
+}
+
+} // namespace
+
+std::vector<std::string> nearestArtistNames(const std::vector<Artist> &artists, const std::string &heard, std::size_t limit)
+{
+    const std::set<std::string> said = letterTriples(heard);
+    std::vector<std::pair<double, std::string>> scored;
+    for (const Artist &artist : artists) {
+        const std::set<std::string> own = letterTriples(artist.title);
+        if (own.empty()) continue;
+        std::size_t shared = 0;
+        for (const std::string &t : own) shared += said.count(t);
+        if (shared == 0) continue;
+        scored.emplace_back(static_cast<double>(shared) / (std::sqrt(static_cast<double>(own.size())) + 1.0), artist.title);
+    }
+    std::stable_sort(scored.begin(), scored.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+    std::vector<std::string> out;
+    for (const auto &[score, title] : scored) {
+        if (out.size() >= limit) break;
+        std::string name = bareName(title);
+        if (!name.empty() && std::find(out.begin(), out.end(), name) == out.end()) out.push_back(std::move(name));
+    }
+    return out;
 }
 
 } // namespace phicore::plex::ipc

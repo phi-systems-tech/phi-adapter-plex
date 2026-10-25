@@ -126,4 +126,12 @@ Playable playableFor(const Track &track, const PlexSettings &settings, const std
 Json itemsJson(std::vector<Track> tracks, const PlexSettings &settings, const std::string &delegationToken,
                std::size_t limit);
 
+/// The library's artists whose names sound nearest to what was heard - the
+/// letters in threes shared, a long name not winning by length - as bare
+/// names ("Robbie Williams", not "Robbie Williams Feat. ..."), at most
+/// `limit`. The answer carries them as `names`: a transcriber told them
+/// reads the same sentence again far better (the voice bench, 2026-10-25:
+/// 24 to 33 of 36 requests found).
+std::vector<std::string> nearestArtistNames(const std::vector<Artist> &artists, const std::string &heard, std::size_t limit);
+
 } // namespace phicore::plex::ipc

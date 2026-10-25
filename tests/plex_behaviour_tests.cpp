@@ -204,6 +204,22 @@ void testSearchScores()
     PHI_CHECK(scoreArtist("Katie Melua", "kat") == 0);
 }
 
+// What a second reading is told: the names nearest to what was heard, bare.
+void testNearestNames()
+{
+    const std::vector<Artist> artists = library();
+    const std::vector<std::string> kette = nearestArtistNames(artists, "kette melua", 3);
+    PHI_CHECK(!kette.empty() && kette.front() == "Katie Melua");
+    const std::vector<std::string> robbe = nearestArtistNames(artists, "Robbe William Steele", 5);
+    PHI_CHECK(!robbe.empty() && robbe.front() == "Robbie Williams");
+    // One name once, whatever it was sung with.
+    PHI_CHECK(std::count(robbe.begin(), robbe.end(), "Robbie Williams") == 1);
+    PHI_CHECK(std::find(robbe.begin(), robbe.end(), "Robbie Williams Feat. Jon Lovitz") == robbe.end());
+    const std::vector<std::string> barbra = nearestArtistNames(artists, "Bavarian Drei Zahn", 5);
+    PHI_CHECK(std::find(barbra.begin(), barbra.end(), "Barbra Streisand") != barbra.end());
+    PHI_CHECK(nearestArtistNames(artists, "", 5).empty());
+}
+
 void testArtistReadings()
 {
     const std::vector<Artist> artists = library();
@@ -379,6 +395,7 @@ int main()
     testPercentEncoding();
     testHttpStatusMapping();
     testSearchScores();
+    testNearestNames();
     testArtistReadings();
     testSearchParsing();
     testPlayableUrls();
