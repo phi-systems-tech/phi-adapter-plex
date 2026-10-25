@@ -1,3 +1,9 @@
+phi-adapter-plex (1.3.1-1) trixie; urgency=medium
+
+  * A title said and not found is not found, not a random song
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Sun, 25 Oct 2026 16:45:37 +0100
+
 phi-adapter-plex (1.3.0-1) trixie; urgency=medium
 
   * The server as a device: streams, what its players play, version
