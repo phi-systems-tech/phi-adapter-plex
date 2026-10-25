@@ -254,6 +254,31 @@ int wordScore(const std::string &artistName, const std::string &artistQuery)
 
 } // namespace
 
+namespace {
+
+/// Every word said has a word of the name it sounds or reads like - or the
+/// two written together are close. Nothing said is left over that could have
+/// been a title.
+bool explainsAll(const std::string &artistName, const std::string &artistQuery)
+{
+    if (joinedScore(artistName, artistQuery) > 0) return true;
+    const std::vector<std::string> said = normalisedWords(artistQuery);
+    const std::vector<std::string> name = normalisedWords(artistName);
+    std::vector<bool> used(name.size(), false);
+    for (const std::string &word : said) {
+        bool found = false;
+        for (std::size_t i = 0; i < name.size() && !found; ++i) {
+            if (used[i] || wordLikeness(word, name[i]) <= 0.0) continue;
+            used[i] = true;
+            found = true;
+        }
+        if (!found) return false;
+    }
+    return !said.empty();
+}
+
+} // namespace
+
 std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const std::string &query)
 {
     const std::vector<std::string> words = wordsOf(query);
@@ -284,7 +309,12 @@ std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const 
         // it needs more: "pink floyd money" sounded enough like "Pink Feat.
         // James T. Moore" at 50 to play one of his songs.
         const int needed = title.empty() ? 60 : 50;
-        const bool worth = best.score >= needed || (best.score >= 30 && best.score >= 2 * second);
+        bool worth = best.score >= needed || (best.score >= 30 && best.score >= 2 * second);
+        // The artist alone only where every word said belongs to the name: a
+        // word left over was a title, and a title not found is not found -
+        // "Robbe William Steele" played a random Robbie Williams song
+        // (pi5, 2026-10-25); the owner wants not understood instead.
+        if (worth && title.empty() && !explainsAll(best.artist.title, artistPart)) worth = false;
         if (worth) out.push_back(std::move(best));
         if (n == 1) break;
     }

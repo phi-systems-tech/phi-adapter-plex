@@ -220,10 +220,20 @@ void testArtistReadings()
         robbie, "4", [](std::size_t) { return std::size_t{0}; });
     PHI_CHECK(first(angels) == "Angels");
 
-    // "Paparaz Dreisand" for Barbra Streisand: a weak reading, and still the
-    // only one that comes close; the duet is the same artist, not a rival.
-    const std::vector<ArtistGuess> barbra = guessArtists(artists, "Paparaz Dreisand");
-    PHI_CHECK(!barbra.empty() && barbra.front().artist.title == "Barbra Streisand" && barbra.front().title.empty());
+    // "Paparaz Dreisand": "paparaz" belongs to no name, so it is not the
+    // artist alone - and a title "Dreisand" is not found. Not understood
+    // rather than a guess.
+    for (const ArtistGuess &g : guessArtists(artists, "Paparaz Dreisand"))
+        PHI_CHECK(!g.title.empty());
+    // A title said and not found is not a random song by the artist.
+    for (const ArtistGuess &g : guessArtists(artists, "Robbe William Steele"))
+        PHI_CHECK(!g.title.empty());
+    const std::vector<ArtistGuess> steele = guessArtists(artists, "Robbe William Steele");
+    const std::vector<Track> none = matchArtistTracks(
+        parseTracks(R"({"MediaContainer":{"Metadata":[
+          {"ratingKey":"51","type":"track","title":"Feel","grandparentTitle":"Robbie Williams","ratingCount":1500000}]}})"),
+        steele, "4", [](std::size_t) { return std::size_t{0}; });
+    PHI_CHECK(none.empty());
 
     // The artist alone plays one of the best-known tracks: the pick is among
     // them, the best-known first.
