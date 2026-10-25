@@ -90,10 +90,11 @@ std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const 
 std::vector<Artist> artistsToFetch(const std::vector<ArtistGuess> &guesses, std::size_t limit);
 /// The artist's tracks scored against every guess for that artist: a title
 /// or an album named, or, for the artist alone, one of the best-known tracks -
-/// `pick` chooses among the ten best-known (a random index in the instance,
+/// `pick` chooses among the `pickAmong` best-known (a random index in the instance,
 /// fixed in tests) so asking twice does not always play the same song.
 std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vector<ArtistGuess> &guesses,
-                                     const std::string &artistKey, const std::function<std::size_t(std::size_t)> &pick);
+                                     const std::string &artistKey, const std::function<std::size_t(std::size_t)> &pick,
+                                     std::size_t pickAmong = 10);
 
 /// `/hubs/search` JSON into its tracks.
 SearchHubs parseHubs(const std::string &body);

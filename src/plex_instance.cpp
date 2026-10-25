@@ -18,6 +18,7 @@
 #include "plex_model.h"
 #include "plex_protocol.h"
 #include "plex_search.h"
+#include "plex_server.h"
 #include "plex_settings.h"
 
 namespace phicore::plex::ipc {
@@ -51,6 +52,7 @@ protected:
     void stop() override
     {
         m_lifecycle = Lifecycle::Stopped;
+        m_sessionsPoll.reset();
         cancelAll("Instance stopped");
         setConnected(false);
         m_http.reset();
@@ -60,6 +62,7 @@ protected:
     void onDisconnected() override
     {
         m_lifecycle = Lifecycle::Paused;
+        m_sessionsPoll.reset();
         cancelAll("Instance disconnected");
         setConnected(false);
     }
@@ -72,6 +75,8 @@ protected:
         m_lifecycle = Lifecycle::Running;
         m_settings = settingsFromAdapter(request.adapter(),
                                          parseObject(request.adapter().metaJson()));
+        m_artists.clear();
+        m_sessionsPoll.reset();
         // A server-only instance announces no device: it is a library to
         // search, not a player (ROADMAP M9 (h)).
         if (m_settings.hasPlayer())
@@ -145,9 +150,6 @@ private:
     static constexpr int kConfident = 90;
     /// How many artists' tracks are read for one query.
     static constexpr std::size_t kArtistFetches = 2;
-    /// The artist list is read once and kept this long: a library grows by
-    /// an album now and then, not by the minute.
-    static constexpr std::int64_t kArtistsMaxAgeMs = 15 * 60 * 1000;
 
     struct Pending {
         v1::CmdId cmdId = 0;
@@ -192,7 +194,9 @@ private:
     /// The library's artists, read when missing or old, then the readings.
     void withArtists(std::shared_ptr<Search> search)
     {
-        if (!m_artists.empty() && nowMs() - m_artistsAtMs < kArtistsMaxAgeMs) {
+        // The artist list is read once and kept as long as the settings say:
+        // a library grows by an album now and then, not by the minute.
+        if (!m_artists.empty() && nowMs() - m_artistsAtMs < std::int64_t{m_settings.artistCacheMinutes} * 60 * 1000) {
             searchArtists(std::move(search));
             return;
         }
@@ -202,7 +206,13 @@ private:
                 failSearch(*search, result);
                 return;
             }
-            auto sections = std::make_shared<std::vector<std::string>>(parseMusicSections(result.body()));
+            std::vector<std::string> keys = parseMusicSections(result.body());
+            if (!m_settings.musicSections.empty())
+                std::erase_if(keys, [this](const std::string &key) {
+                    return std::find(m_settings.musicSections.begin(), m_settings.musicSections.end(), key)
+                        == m_settings.musicSections.end();
+                });
+            auto sections = std::make_shared<std::vector<std::string>>(std::move(keys));
             auto artists = std::make_shared<std::vector<Artist>>();
             readArtistSections(std::move(search), std::move(sections), std::move(artists));
         });
@@ -255,7 +265,7 @@ private:
             std::vector<Track> matched = matchArtistTracks(parseTracks(result.body()), search->guesses,
                                                            artist.ratingKey, [this](std::size_t n) {
                                                                return std::uniform_int_distribution<std::size_t>(0, n - 1)(m_random);
-                                                           });
+                                                           }, static_cast<std::size_t>(m_settings.artistPickCount));
             search->found.insert(search->found.end(), matched.begin(), matched.end());
             fetchNextArtist(search);
         });
@@ -338,7 +348,69 @@ private:
                 probePlayer();
             else
                 setConnected(true);
+            readServer();
         });
+    }
+
+    /// The server as a device: what it is, then what its players play, asked
+    /// every ten seconds - a Plex app reports its timeline about as often.
+    void readServer()
+    {
+        enqueue(0, serverCall(m_settings, serverRootPath()), [this](net::HttpClient::Result result) {
+            if (!result.ok())
+                return;
+            m_server = parseServerRoot(result.body());
+            v1::Utf8String error;
+            if (!sendDeviceUpdated(buildServerDevice(m_server), serverChannels(), &error))
+                log(sdk::LogLevel::Error, sdk::LogCategory::Internal, "failed to publish the Plex server: %1", {error});
+            m_serverPublished = true;
+            publishServerConnectivity();
+            readSessions();
+            if (m_loop && !m_sessionsPoll)
+                m_sessionsPoll = m_loop->timerEvery(std::chrono::seconds(10), [this]() { readSessions(); });
+        });
+    }
+
+    void readSessions()
+    {
+        if (m_lifecycle != Lifecycle::Running || !m_http || !m_serverPublished)
+            return;
+        enqueue(0, serverCall(m_settings, sessionsPath()), [this](net::HttpClient::Result result) {
+            if (!result.ok()) {
+                if (result.status() == 0)
+                    setConnected(false);
+                return;
+            }
+            if (!m_settings.hasPlayer())
+                setConnected(true);
+            const SessionsSummary now = parseSessions(result.body());
+            const std::int64_t ts = nowMs();
+            const auto send = [&](const char *channel, const v1::ScalarValue &value) {
+                v1::Utf8String error;
+                sendChannelStateUpdated(kServerDeviceId, channel, value, ts, &error);
+            };
+            send(serverch::Sessions, static_cast<std::int64_t>(now.count));
+            send(serverch::Title, now.title);
+            send(serverch::Artist, now.artist);
+            send(serverch::PlayedOn, now.playedOn);
+            send(serverch::Duration, now.durationS);
+            // Where it stands now: a client counts on from this report while it
+            // plays, so a paused stream is only written when it changes.
+            if (now.playing || now.positionS != m_lastSessions.positionS || now.title != m_lastSessions.title)
+                send(serverch::Position, now.positionS);
+            m_lastSessions = now;
+        });
+    }
+
+    void publishServerConnectivity()
+    {
+        if (!m_serverPublished)
+            return;
+        v1::Utf8String error;
+        sendChannelStateUpdated(kServerDeviceId, serverch::Connectivity,
+                                static_cast<std::int64_t>(m_connected ? v1::ConnectivityStatus::Connected
+                                                                      : v1::ConnectivityStatus::Disconnected),
+                                nowMs(), &error);
     }
 
     void probePlayer()
@@ -410,6 +482,7 @@ private:
         if (!sendConnectionStateChanged(connected, &error))
             log(sdk::LogLevel::Error, sdk::LogCategory::Internal,
                 "failed to publish Plex connection state: %1", {error});
+        publishServerConnectivity();
     }
 
     void answer(v1::CmdId cmdId, v1::CmdStatus status, const std::string &errorText)
@@ -432,6 +505,10 @@ private:
     bool m_connected = false;
     std::vector<Artist> m_artists;
     std::int64_t m_artistsAtMs = 0;
+    ServerInfo m_server;
+    bool m_serverPublished = false;
+    SessionsSummary m_lastSessions;
+    phi::runtime::Timer m_sessionsPoll;
     std::mt19937 m_random{std::random_device{}()};
 };
 

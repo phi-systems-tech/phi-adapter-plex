@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <string_view>
 
 #include "phi/adapter/net/http_client.h"
@@ -23,6 +24,15 @@ struct PlexSettings {
     std::string playerClientIdentifier;
     std::string playerName;
     std::string controllerIdentifier;
+
+    /// What a search plays through the transcoder at, kbit/s.
+    int musicBitrate = 192;
+    /// How long the library's artist list is kept before it is read again.
+    int artistCacheMinutes = 15;
+    /// "Play <artist>": one of this many best-known tracks, at random.
+    int artistPickCount = 10;
+    /// Which music sections a search reads, by key; empty is all of them.
+    std::vector<std::string> musicSections;
 
     [[nodiscard]] std::string serverBaseUrl() const;
     [[nodiscard]] std::string playerBaseUrl() const;

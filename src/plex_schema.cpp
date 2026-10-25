@@ -56,8 +56,29 @@ v1::AdapterConfigSection section()
     auto controllerId = field("controllerIdentifier", Type::String, "Controller identifier",
                               "Stable X-Plex-Client-Identifier; normally left empty.");
 
+    // How "play ..." searches and plays.
+    auto searchHeading = field("searchHeading", Type::Section, "Search and playback",
+                               "How a spoken \"play ...\" searches this library and what it plays.");
+    auto bitrate = field("musicBitrate", Type::Integer, "Bitrate (kbit/s)",
+                         "What the transcoder sends a satellite: 128 saves the network, 320 is as good as MP3 gets.",
+                         std::int64_t{192});
+    bitrate.setMinValue(64).setMaxValue(320).setStep(32);
+    bitrate.layout().setControlWidth(v1::AdapterConfigSize::Narrow);
+    auto cache = field("artistCacheMinutes", Type::Integer, "Artist list kept (minutes)",
+                       "How long the library's artists are kept before they are read again.", std::int64_t{15});
+    cache.setMinValue(1).setMaxValue(1440);
+    cache.layout().setControlWidth(v1::AdapterConfigSize::Narrow);
+    auto pick = field("artistPickCount", Type::Integer, "Best-known tracks to pick from",
+                      "\"Play <artist>\" plays one of this many of the artist's best-known tracks, at random.",
+                      std::int64_t{10});
+    pick.setMinValue(1).setMaxValue(50);
+    pick.layout().setControlWidth(v1::AdapterConfigSize::Narrow);
+    auto sections = field("musicSections", Type::String, "Music libraries",
+                          "Section keys to search, comma-separated; empty searches every music library.");
+
     out.setFields({serverHost, serverPort, serverTls, token, serverId,
-                   playerHost, playerPort, playerTls, playerId, playerName, controllerId});
+                   playerHost, playerPort, playerTls, playerId, playerName, controllerId,
+                   searchHeading, bitrate, cache, pick, sections});
     return out;
 }
 

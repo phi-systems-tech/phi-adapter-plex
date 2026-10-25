@@ -29,6 +29,7 @@ add_library(phi_adapter_plex_core STATIC
     src/plex_protocol.cpp
     src/plex_schema.cpp
     src/plex_search.cpp
+    src/plex_server.cpp
     src/plex_settings.cpp
 )
 target_compile_features(phi_adapter_plex_core PUBLIC cxx_std_20)

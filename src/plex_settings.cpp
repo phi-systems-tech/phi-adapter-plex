@@ -1,5 +1,6 @@
 #include "plex_settings.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 
@@ -94,6 +95,13 @@ PlexSettings settingsFromAdapter(const v1::Adapter &adapter, const Json &meta)
     out.playerClientIdentifier = jsonString(meta, "playerClientIdentifier");
     out.playerName = jsonString(meta, "playerName");
     out.controllerIdentifier = metaOr(meta, "controllerIdentifier", out.controllerIdentifier);
+    out.musicBitrate = std::clamp(jsonInt(meta, "musicBitrate", 192), 64, 320);
+    out.artistCacheMinutes = std::clamp(jsonInt(meta, "artistCacheMinutes", 15), 1, 24 * 60);
+    out.artistPickCount = std::clamp(jsonInt(meta, "artistPickCount", 10), 1, 50);
+    for (const std::string &key : str::split(jsonString(meta, "musicSections"), ',')) {
+        const std::string k = str::trimmed(key);
+        if (!k.empty()) out.musicSections.push_back(k);
+    }
     return out;
 }
 

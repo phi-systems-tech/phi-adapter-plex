@@ -304,7 +304,8 @@ std::vector<Artist> artistsToFetch(const std::vector<ArtistGuess> &guesses, std:
 }
 
 std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vector<ArtistGuess> &guesses,
-                                     const std::string &artistKey, const std::function<std::size_t(std::size_t)> &pick)
+                                     const std::string &artistKey, const std::function<std::size_t(std::size_t)> &pick,
+                                     std::size_t pickAmong)
 {
     std::vector<Track> out;
     if (tracks.empty()) return out;
@@ -315,7 +316,7 @@ std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vecto
             std::vector<Track> known = tracks;
             std::stable_sort(known.begin(), known.end(),
                              [](const Track &a, const Track &b) { return a.ratingCount > b.ratingCount; });
-            const std::size_t top = std::min<std::size_t>(known.size(), 10);
+            const std::size_t top = std::min<std::size_t>(known.size(), std::max<std::size_t>(pickAmong, 1));
             Track chosen = known[pick ? pick(top) % top : 0];
             // Below a named title on purpose: "Robbie Williams Angels" read
             // as the artist alone must lose to the reading that found Angels.
@@ -443,7 +444,8 @@ Playable playableFor(const Track &track, const PlexSettings &settings, const std
     // profile the server chooses, which is not something to debug twice.
     out.url = base + "/music/:/transcode/universal/start.mp3?hasMDE=1&path="
         + urlEncode("/library/metadata/" + track.ratingKey)
-        + "&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=0&musicBitrate=192"
+        + "&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=0&musicBitrate="
+        + std::to_string(settings.musicBitrate)
         + "&session=" + urlEncode(settings.controllerIdentifier + "-" + track.ratingKey)
         + "&X-Plex-Client-Identifier=" + urlEncode(settings.controllerIdentifier)
         + "&X-Plex-Product=Plex+Web&X-Plex-Platform=Chrome&X-Plex-Version=4.0"

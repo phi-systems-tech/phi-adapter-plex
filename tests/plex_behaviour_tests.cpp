@@ -4,6 +4,7 @@
 #include "plex_protocol.h"
 #include "plex_schema.h"
 #include "plex_search.h"
+#include "plex_server.h"
 #include "plex_settings.h"
 
 #include <algorithm>
@@ -308,6 +309,51 @@ void testServerOnlyInstance()
             PHI_CHECK(!v1::hasFlag(field.flags(), v1::AdapterConfigFieldFlag::Required));
 }
 
+void testServerDevice()
+{
+    const ServerInfo info = parseServerRoot(R"({"MediaContainer":{"friendlyName":"pi5vs","version":"1.41.6.9685-d301f511a","machineIdentifier":"e201"}})");
+    PHI_CHECK(info.name == "pi5vs" && info.version == "1.41.6.9685-d301f511a" && info.machineIdentifier == "e201");
+    const v1::Device device = buildServerDevice(info);
+    PHI_CHECK(device.externalId() == "server" && device.name() == "Plex pi5vs" && device.firmware() == info.version);
+    PHI_CHECK(device.deviceClass() == v1::DeviceClass::Gateway);
+    bool sessions = false, title = false, position = false;
+    for (const auto &c : serverChannels()) {
+        sessions = sessions || c.kind() == v1::ChannelKind::MediaSessions;
+        title = title || c.kind() == v1::ChannelKind::MediaTitle;
+        position = position || (c.kind() == v1::ChannelKind::MediaPosition && v1::hasFlag(c.flags(), v1::ChannelFlag::NoHistory));
+    }
+    PHI_CHECK(sessions && title && position);
+
+    // Two streams: the playing one is shown, the paused one counted.
+    const SessionsSummary two = parseSessions(R"({"MediaContainer":{"size":2,"Metadata":[
+      {"type":"movie","title":"A Star Is Born","duration":8160000,"viewOffset":60000,"Player":{"title":"Wohnzimmer TV","state":"paused"}},
+      {"type":"track","title":"Angels","grandparentTitle":"Robbie Williams","duration":264000,"viewOffset":30500,"Player":{"title":"Plexamp","state":"playing"}}]}})");
+    PHI_CHECK(two.count == 2 && two.title == "Angels" && two.artist == "Robbie Williams" && two.playedOn == "Plexamp");
+    PHI_CHECK(two.playing && two.positionS == 30 && two.durationS == 264);
+    const SessionsSummary none = parseSessions(R"({"MediaContainer":{"size":0}})");
+    PHI_CHECK(none.count == 0 && none.title.empty() && !none.playing);
+}
+
+void testSearchSettings()
+{
+    const PlexSettings defaults = settingsFromAdapter(v1::Adapter{}, Json::object());
+    PHI_CHECK(defaults.musicBitrate == 192 && defaults.artistCacheMinutes == 15 && defaults.artistPickCount == 10);
+    PHI_CHECK(defaults.musicSections.empty());
+    const PlexSettings set = settingsFromAdapter(v1::Adapter{}, Json{{"musicBitrate", 320}, {"artistPickCount", 3},
+                                                                     {"musicSections", " 2, 5 ,"}, {"artistCacheMinutes", 0}});
+    PHI_CHECK(set.musicBitrate == 320 && set.artistPickCount == 3 && set.artistCacheMinutes == 1);
+    PHI_CHECK(set.musicSections == std::vector<std::string>({"2", "5"}));
+    PlexSettings s = settings();
+    s.musicBitrate = 128;
+    const Playable p = playableFor(parseTracks(kLeaves).front(), s, "T");
+    PHI_CHECK(p.url.find("musicBitrate=128") != std::string::npos);
+    // The pick count bounds the pick: among one, the best-known always.
+    const std::vector<ArtistGuess> katie = guessArtists(library(), "katie melua");
+    const std::vector<Track> one = matchArtistTracks(parseTracks(kLeaves), katie, "3",
+                                                     [](std::size_t n) { return n - 1; }, 1);
+    PHI_CHECK(!one.empty() && one.front().title == "Nine Million Bicycles");
+}
+
 } // namespace
 
 int main()
@@ -323,5 +369,7 @@ int main()
     testSearchParsing();
     testPlayableUrls();
     testServerOnlyInstance();
+    testServerDevice();
+    testSearchSettings();
     return phi::testing::report("plex_behaviour_tests");
 }
