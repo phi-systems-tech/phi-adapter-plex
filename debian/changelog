@@ -1,3 +1,9 @@
+phi-adapter-plex (1.1.0-1) trixie; urgency=medium
+
+  * media.search: what the library has for a title, an artist or both; a server-only instance
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Sun, 25 Oct 2026 14:33:57 +0100
+
 phi-adapter-plex (1.0.2-1) trixie; urgency=medium
 
   * Rebuilt against phi-adapter-sdk 0.26.0: accessors instead of fields
