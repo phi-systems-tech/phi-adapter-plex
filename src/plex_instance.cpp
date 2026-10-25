@@ -390,6 +390,7 @@ private:
                 sendChannelStateUpdated(kServerDeviceId, channel, value, ts, &error);
             };
             send(serverch::Sessions, static_cast<std::int64_t>(now.count));
+            send(serverch::Playing, now.playing);
             send(serverch::Title, now.title);
             send(serverch::Artist, now.artist);
             send(serverch::PlayedOn, now.playedOn);

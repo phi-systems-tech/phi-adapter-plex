@@ -84,7 +84,8 @@ v1::ChannelList serverChannels()
     v1::ChannelList out;
     out.push_back(readOnly(serverch::Connectivity, "Connectivity", v1::ChannelKind::ConnectivityStatus, v1::ChannelDataType::Enum));
     out.push_back(readOnly(serverch::Sessions, "Streams", v1::ChannelKind::MediaSessions, v1::ChannelDataType::Int));
-    out.push_back(readOnly(serverch::Title, "Playing", v1::ChannelKind::MediaTitle, v1::ChannelDataType::String));
+    out.push_back(readOnly(serverch::Playing, "Playing", v1::ChannelKind::PlayPause, v1::ChannelDataType::Bool, false));
+    out.push_back(readOnly(serverch::Title, "Title", v1::ChannelKind::MediaTitle, v1::ChannelDataType::String));
     out.push_back(readOnly(serverch::Artist, "Artist", v1::ChannelKind::MediaArtist, v1::ChannelDataType::String));
     out.push_back(readOnly(serverch::PlayedOn, "Played on", v1::ChannelKind::MediaPlayedOn, v1::ChannelDataType::String));
     v1::Channel position = readOnly(serverch::Position, "Position", v1::ChannelKind::MediaPosition, v1::ChannelDataType::Int, false);

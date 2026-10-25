@@ -46,6 +46,7 @@ inline constexpr const char kServerDeviceId[] = "server";
 namespace serverch {
 inline constexpr const char *Connectivity = "connectivity";
 inline constexpr const char *Sessions = "sessions";
+inline constexpr const char *Playing = "nowPlaying";
 inline constexpr const char *Title = "nowTitle";
 inline constexpr const char *Artist = "nowArtist";
 inline constexpr const char *PlayedOn = "nowPlayedOn";
