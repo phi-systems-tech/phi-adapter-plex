@@ -1,3 +1,9 @@
+phi-adapter-plex (1.3.3-1) trixie; urgency=medium
+
+  * The artist alone answers with three of the best-known, at its own score
+
+ -- Marius Schumacher <marius.schumacher@phisys.com>  Sun, 25 Oct 2026 18:05:00 +0100
+
 phi-adapter-plex (1.3.2-1) trixie; urgency=medium
 
   * A word somewhere in a long title is not a match
