@@ -147,6 +147,7 @@ private:
     static constexpr int kHubLimit = 10;
     static constexpr std::size_t kItemLimit = 5;
     static constexpr std::size_t kNearNames = 5;
+    static constexpr std::size_t kHintTitles = 10;
     /// Only an exact artist-and-title hit needs no artist reading on top: a
     /// title alone that matches ("Barbra Streisand", a song by Duck Sauce)
     /// must meet the artist of that name (bench, 2026-10-25).
@@ -172,6 +173,9 @@ private:
         std::vector<Artist> toFetch;
         std::vector<Track> found;
         bool artistsRead = false;
+        /// The first artist looked at and its best-known titles, for the hint.
+        std::string titlesArtist;
+        std::vector<std::string> titles;
     };
 
     void searchWhole(std::shared_ptr<Search> search)
@@ -267,7 +271,12 @@ private:
                 failSearch(*search, result);
                 return;
             }
-            std::vector<Track> matched = matchArtistTracks(parseTracks(result.body()), search->guesses,
+            std::vector<Track> leaves = parseTracks(result.body());
+            if (search->titlesArtist.empty()) {
+                search->titlesArtist = artist.title;
+                search->titles = bestKnownTitles(leaves, kHintTitles);
+            }
+            std::vector<Track> matched = matchArtistTracks(std::move(leaves), search->guesses,
                                                            artist.ratingKey, [this](std::size_t n) {
                                                                return std::uniform_int_distribution<std::size_t>(0, n - 1)(m_random);
                                                            }, static_cast<std::size_t>(m_settings.artistPickCount));
@@ -284,15 +293,19 @@ private:
         Json names = Json::array();
         if (search->artistsRead)
             for (std::string &name : nearestArtistNames(m_artists, search->query, kNearNames)) names.push_back(std::move(name));
+        // The likeliest artist's own titles: {artist, title} each.
+        Json titles = Json::array();
+        for (const std::string &title : search->titles) titles.push_back(Json{{"artist", search->titlesArtist}, {"title", title}});
         if (search->found.empty()) {
             Json answer = itemsJson({}, m_settings, {}, kItemLimit);
             answer["names"] = std::move(names);
+            answer["titles"] = std::move(titles);
             sendAction(v1::ActionResponse::success(search->cmdId).setData(dump(answer)));
             return;
         }
         // A token minted for this answer: the server's own never leaves here.
         enqueueAction(search->cmdId, serverCall(m_settings, delegationTokenPath()),
-                      [this, search, names = std::move(names)](net::HttpClient::Result result) mutable {
+                      [this, search, names = std::move(names), titles = std::move(titles)](net::HttpClient::Result result) mutable {
             if (!result.ok()) {
                 failSearch(*search, result);
                 return;
@@ -305,6 +318,7 @@ private:
             }
             Json answer = itemsJson(search->found, m_settings, token, kItemLimit);
             answer["names"] = std::move(names);
+            answer["titles"] = std::move(titles);
             sendAction(v1::ActionResponse::success(search->cmdId).setData(dump(answer)));
         });
     }

@@ -218,6 +218,12 @@ void testNearestNames()
     const std::vector<std::string> barbra = nearestArtistNames(artists, "Bavarian Drei Zahn", 5);
     PHI_CHECK(std::find(barbra.begin(), barbra.end(), "Barbra Streisand") != barbra.end());
     PHI_CHECK(nearestArtistNames(artists, "", 5).empty());
+
+    const std::vector<std::string> titles = bestKnownTitles(parseTracks(R"({"MediaContainer":{"Metadata":[
+          {"ratingKey":"1","type":"track","title":"Shy Boy","grandparentTitle":"Katie Melua","ratingCount":10},
+          {"ratingKey":"2","type":"track","title":"Nine Million Bicycles","grandparentTitle":"Katie Melua","ratingCount":900},
+          {"ratingKey":"3","type":"track","title":"Nine Million Bicycles","grandparentTitle":"Katie Melua","ratingCount":800}]}})"), 5);
+    PHI_CHECK(titles.size() == 2 && titles.front() == "Nine Million Bicycles");
 }
 
 void testArtistReadings()

@@ -133,5 +133,10 @@ Json itemsJson(std::vector<Track> tracks, const PlexSettings &settings, const st
 /// reads the same sentence again far better (the voice bench, 2026-10-25:
 /// 24 to 33 of 36 requests found).
 std::vector<std::string> nearestArtistNames(const std::vector<Artist> &artists, const std::string &heard, std::size_t limit);
+/// An artist's best-known titles (Last.fm's listeners), each once, at most
+/// `limit` - with the names, what the transcriber is told when it reads a
+/// request again: "9 Millen Beisekos" came back "Nine Million Bicycles" once
+/// Katie Melua's titles were in the hint (pi5, 2026-10-26).
+std::vector<std::string> bestKnownTitles(std::vector<Track> tracks, std::size_t limit);
 
 } // namespace phicore::plex::ipc

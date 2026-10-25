@@ -579,4 +579,15 @@ std::vector<std::string> nearestArtistNames(const std::vector<Artist> &artists, 
     return out;
 }
 
+std::vector<std::string> bestKnownTitles(std::vector<Track> tracks, std::size_t limit)
+{
+    std::stable_sort(tracks.begin(), tracks.end(), [](const Track &a, const Track &b) { return a.ratingCount > b.ratingCount; });
+    std::vector<std::string> out;
+    for (const Track &t : tracks) {
+        if (out.size() >= limit) break;
+        if (!t.title.empty() && std::find(out.begin(), out.end(), t.title) == out.end()) out.push_back(t.title);
+    }
+    return out;
+}
+
 } // namespace phicore::plex::ipc
