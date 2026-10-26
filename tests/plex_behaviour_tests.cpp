@@ -251,7 +251,8 @@ void testArtistReadings()
     // rather than a guess.
     for (const ArtistGuess &g : guessArtists(artists, "Paparaz Dreisand"))
         PHI_CHECK(!g.title.empty());
-    // A title said and not found is not a random song by the artist.
+    // A title said and not found is not a random song by the artist: the
+    // best-known come back only to be asked about, below any vote.
     for (const ArtistGuess &g : guessArtists(artists, "Robbe William Steele"))
         PHI_CHECK(!g.title.empty());
     const std::vector<ArtistGuess> steele = guessArtists(artists, "Robbe William Steele");
@@ -259,7 +260,7 @@ void testArtistReadings()
         parseTracks(R"({"MediaContainer":{"Metadata":[
           {"ratingKey":"51","type":"track","title":"Feel","grandparentTitle":"Robbie Williams","ratingCount":1500000}]}})"),
         steele, "4", [](std::size_t) { return std::size_t{0}; });
-    PHI_CHECK(none.empty());
+    PHI_CHECK(none.size() == 1 && none.front().title == "Feel" && none.front().score < 50);
 
     // The artist alone plays one of the best-known tracks: the pick is among
     // them, the best-known first.

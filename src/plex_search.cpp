@@ -341,6 +341,13 @@ std::vector<Artist> artistsToFetch(const std::vector<ArtistGuess> &guesses, std:
     return out;
 }
 
+namespace {
+/// An artist reading this good is the artist, whatever followed it.
+constexpr int kClearArtist = 80;
+/// What a best-known track scores when the title said matched none.
+constexpr int kUnmatchedTitle = 40;
+} // namespace
+
 std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vector<ArtistGuess> &guesses,
                                      const std::string &artistKey, const std::function<std::size_t(std::size_t)> &pick,
                                      std::size_t pickAmong)
@@ -371,6 +378,7 @@ std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vecto
             continue;
         }
         // A title named, or an album: the album's first track.
+        const std::size_t before = out.size();
         for (const Track &track : tracks) {
             const int byTitle = scoreTitle(track.title, guess.title);
             if (byTitle >= 60) {
@@ -391,6 +399,21 @@ std::vector<Track> matchArtistTracks(std::vector<Track> tracks, const std::vecto
             Track scored = track;
             scored.score = (guess.score + scoreTitle(album, guess.title)) / 2 - 5;
             out.push_back(std::move(scored));
+        }
+        // The artist heard clearly and the rest matching nothing of theirs
+        // ("Robbie Williams irgendwas", a title the transcriber mangled):
+        // their three best-known tracks, scored low enough that a caller
+        // asks which one rather than plays it, and below the vote two
+        // readings could cast for the same of them (pi5, 2026-10-26).
+        if (out.size() == before && guess.score >= kClearArtist) {
+            std::vector<Track> known = tracks;
+            std::stable_sort(known.begin(), known.end(),
+                             [](const Track &a, const Track &b) { return a.ratingCount > b.ratingCount; });
+            for (std::size_t k = 0; k < std::min<std::size_t>(3, known.size()); ++k) {
+                Track t = known[k];
+                t.score = kUnmatchedTitle - static_cast<int>(k);
+                out.push_back(std::move(t));
+            }
         }
     }
     return out;
