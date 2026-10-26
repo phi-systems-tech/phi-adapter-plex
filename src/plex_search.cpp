@@ -315,6 +315,8 @@ bool explainsAll(const std::string &artistName, const std::string &artistQuery)
 namespace {
 /// An artist read from the end of what was said must be this clear.
 constexpr int kArtistAtEnd = 80;
+/// The surname of exactly one artist of the library.
+constexpr int kSurnameAlone = 90;
 } // namespace
 
 std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const std::string &query)
@@ -383,8 +385,16 @@ std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const 
                 ++surnames;
             }
         }
-        if (best.score < kArtistAtEnd && surnames == 1) best = ArtistGuess{*bySurname, kArtistAtEnd, title};
-        if (best.score >= kArtistAtEnd) out.push_back(std::move(best));
+        // The one artist with that surname is as clear as a name gets: with a
+        // title that matches it is sure ("Rigoletto von Verdi" was asked
+        // about at 85, pi5 2026-10-26).
+        if (best.score < kSurnameAlone && surnames == 1) best = ArtistGuess{*bySurname, kSurnameAlone, title};
+        // Not where the whole of it is the artist already: "kette melua" is
+        // Katie Melua, not a title "kette" by Melua.
+        bool whole = false;
+        for (const ArtistGuess &g : out)
+            if (g.title.empty() && g.artist.ratingKey == best.artist.ratingKey) whole = true;
+        if (best.score >= kArtistAtEnd && !whole) out.push_back(std::move(best));
     }
     std::stable_sort(out.begin(), out.end(), [](const ArtistGuess &a, const ArtistGuess &b) { return a.score > b.score; });
     return out;
