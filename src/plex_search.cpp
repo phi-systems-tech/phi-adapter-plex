@@ -541,13 +541,19 @@ std::string parseDelegationToken(const std::string &body)
     return token;
 }
 
-std::string parseAlbumKey(const std::string &body, const std::string &title)
+std::optional<AlbumOf> parseAlbumOf(const std::string &body, const std::string &title)
 {
     const Json items = jsonValue(jsonValue(parseJson(body), "MediaContainer"), "Metadata");
-    if (!items.is_array() || items.empty() || !items.front().is_object()) return {};
+    if (!items.is_array() || items.empty() || !items.front().is_object()) return std::nullopt;
     const Json &item = items.front();
-    if (jsonString(item, "type") != "track" || jsonString(item, "title") != title) return {};
-    return jsonString(item, "parentRatingKey");
+    if (jsonString(item, "type") != "track" || jsonString(item, "title") != title) return std::nullopt;
+    AlbumOf album;
+    album.key = jsonString(item, "parentRatingKey");
+    album.title = jsonString(item, "parentTitle");
+    const Json section = jsonValue(item, "librarySectionID");
+    album.sectionId = section.is_number_integer() ? std::to_string(section.get<std::int64_t>()) : jsonString(item, "librarySectionID");
+    if (album.key.empty()) return std::nullopt;
+    return album;
 }
 
 std::optional<Track> albumNeighbour(std::vector<Track> albumTracks, const std::string &ratingKey, int step)
@@ -595,6 +601,11 @@ std::string metadataPath(const std::string &ratingKey)
 std::string albumTracksPath(const std::string &albumKey)
 {
     return "/library/metadata/" + urlEncode(albumKey) + "/children";
+}
+
+std::string albumTitleTracksPath(const std::string &sectionId, const std::string &albumTitle)
+{
+    return "/library/sections/" + urlEncode(sectionId) + "/all?type=10&album.title=" + urlEncode(albumTitle);
 }
 
 std::string delegationTokenPath()

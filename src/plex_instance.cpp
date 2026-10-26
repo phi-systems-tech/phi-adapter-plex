@@ -344,36 +344,57 @@ private:
         }
         enqueueAction(cmdId, serverCall(m_settings, metadataPath(ratingKey)),
                       [this, cmdId, ratingKey, title, step](net::HttpClient::Result result) {
-            const std::string albumKey = result.ok() ? parseAlbumKey(result.body(), title) : std::string();
-            if (albumKey.empty()) {
+            const std::optional<AlbumOf> album = result.ok() ? parseAlbumOf(result.body(), title) : std::nullopt;
+            if (!album) {
                 if (!result.ok() && result.status() != 404) {
                     answerAction(cmdId, statusForHttp(result), errorForHttp(result, "Plex lookup failed"));
                     return;
                 }
-                sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({}, m_settings, {}, 1))));
+                sendStep(cmdId, std::nullopt);
                 return;
             }
-            enqueueAction(cmdId, serverCall(m_settings, albumTracksPath(albumKey)),
-                          [this, cmdId, ratingKey, step](net::HttpClient::Result album) {
-                if (!album.ok()) {
-                    answerAction(cmdId, statusForHttp(album), errorForHttp(album, "Plex album lookup failed"));
+            enqueueAction(cmdId, serverCall(m_settings, albumTracksPath(album->key)),
+                          [this, cmdId, ratingKey, step, album = *album](net::HttpClient::Result tracks) {
+                if (!tracks.ok()) {
+                    answerAction(cmdId, statusForHttp(tracks), errorForHttp(tracks, "Plex album lookup failed"));
                     return;
                 }
-                const std::optional<Track> next = albumNeighbour(parseTracks(album.body()), ratingKey, step);
-                if (!next) {
-                    sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({}, m_settings, {}, 1))));
+                std::optional<Track> next = albumNeighbour(parseTracks(tracks.body()), ratingKey, step);
+                if (next || album.title.empty() || album.sectionId.empty()) {
+                    sendStep(cmdId, std::move(next));
                     return;
                 }
-                enqueueAction(cmdId, serverCall(m_settings, delegationTokenPath()),
-                              [this, cmdId, track = *next](net::HttpClient::Result tokenResult) {
-                    const std::string token = tokenResult.ok() ? parseDelegationToken(tokenResult.body()) : std::string();
-                    if (token.empty()) {
-                        answerAction(cmdId, v1::CmdStatus::Failure, "The server did not mint a delegation token");
+                // Alone on its album: a sampler split by artist. Its title
+                // holds it together again.
+                enqueueAction(cmdId, serverCall(m_settings, albumTitleTracksPath(album.sectionId, album.title)),
+                              [this, cmdId, ratingKey, step, album](net::HttpClient::Result titled) {
+                    if (!titled.ok()) {
+                        answerAction(cmdId, statusForHttp(titled), errorForHttp(titled, "Plex album lookup failed"));
                         return;
                     }
-                    sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({track}, m_settings, token, 1))));
+                    std::vector<Track> same = parseTracks(titled.body());
+                    std::erase_if(same, [&](const Track &t) { return t.album != album.title; });
+                    sendStep(cmdId, albumNeighbour(std::move(same), ratingKey, step));
                 });
             });
+        });
+    }
+
+    /// The step's answer: the neighbour as the one item, or no items.
+    void sendStep(v1::CmdId cmdId, std::optional<Track> next)
+    {
+        if (!next) {
+            sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({}, m_settings, {}, 1))));
+            return;
+        }
+        enqueueAction(cmdId, serverCall(m_settings, delegationTokenPath()),
+                      [this, cmdId, track = *next](net::HttpClient::Result tokenResult) {
+            const std::string token = tokenResult.ok() ? parseDelegationToken(tokenResult.body()) : std::string();
+            if (token.empty()) {
+                answerAction(cmdId, v1::CmdStatus::Failure, "The server did not mint a delegation token");
+                return;
+            }
+            sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({track}, m_settings, token, 1))));
         });
     }
 

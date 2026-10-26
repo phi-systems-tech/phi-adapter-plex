@@ -107,10 +107,16 @@ std::vector<std::string> parseMusicSections(const std::string &body);
 std::vector<Artist> parseArtists(const std::string &body);
 /// `/security/token` JSON into the delegation token; empty when none.
 std::string parseDelegationToken(const std::string &body);
-/// `/library/metadata/<key>` JSON of a track: its album's key, empty when
-/// the item is not a track or its title is not `title` (an item of another
-/// server that happens to share the key).
-std::string parseAlbumKey(const std::string &body, const std::string &title);
+/// The album a track is on: its key, its title and the library section.
+struct AlbumOf {
+    std::string key;
+    std::string title;
+    std::string sectionId;
+};
+/// `/library/metadata/<key>` JSON of a track: its album; none when the item
+/// is not a track or its title is not `title` (an item of another server
+/// that happens to share the key).
+std::optional<AlbumOf> parseAlbumOf(const std::string &body, const std::string &title);
 /// "Next song" (`media.step`): the track `step` places from `ratingKey` on
 /// its album, in disc and track order and round at the ends; none when the
 /// album holds no other track, or not this one.
@@ -124,6 +130,10 @@ std::string artistTracksPath(const std::string &artistKey);
 std::string delegationTokenPath();
 std::string metadataPath(const std::string &ratingKey);
 std::string albumTracksPath(const std::string &albumKey);
+/// Every track of a section on an album of this title: a sampler whose
+/// tracks name their own artists is one album per artist on the server, a
+/// track each ("Love Compilation", pi5 2026-10-26).
+std::string albumTitleTracksPath(const std::string &sectionId, const std::string &albumTitle);
 
 /// The playable URL and MIME type of a track, with the token minted for it.
 struct Playable {

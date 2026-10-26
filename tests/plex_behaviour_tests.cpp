@@ -430,9 +430,12 @@ void testAlbumNeighbour()
     PHI_CHECK(!albumNeighbour(tracks, "99", 1));
     PHI_CHECK(!albumNeighbour(parseTracks(R"({"MediaContainer":{"Metadata":[{"type":"track","ratingKey":"1","title":"T"}]}})"), "1", 1));
 
-    const char *meta = R"({"MediaContainer":{"Metadata":[{"type":"track","ratingKey":"12","title":"A2","parentRatingKey":"7"}]}})";
-    PHI_CHECK(parseAlbumKey(meta, "A2") == "7");
-    PHI_CHECK(parseAlbumKey(meta, "Other").empty());
+    const char *meta = R"({"MediaContainer":{"Metadata":[{"type":"track","ratingKey":"12","title":"A2","parentRatingKey":"7",
+        "parentTitle":"Love Compilation","librarySectionID":2}]}})";
+    const std::optional<AlbumOf> of = parseAlbumOf(meta, "A2");
+    PHI_CHECK(of && of->key == "7" && of->title == "Love Compilation" && of->sectionId == "2");
+    PHI_CHECK(!parseAlbumOf(meta, "Other"));
+    PHI_CHECK(albumTitleTracksPath("2", "Love Compilation") == "/library/sections/2/all?type=10&album.title=Love%20Compilation");
     PHI_CHECK(metadataPath("12") == "/library/metadata/12");
     PHI_CHECK(albumTracksPath("7") == "/library/metadata/7/children");
 }
