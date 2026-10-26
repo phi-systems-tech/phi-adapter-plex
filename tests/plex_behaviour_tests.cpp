@@ -192,6 +192,8 @@ void testSearchScores()
     PHI_CHECK(scoreTitle("RIGOLETTO - Tochter - Mein Vater", "Ricoletto") == 90);
     PHI_CHECK(scoreTitle("Un ballo in maschera: “Ecco l’orrido campo”", "maschera") == 80);
     PHI_CHECK(scoreTitle("Come Undone", "irgendwas") == 0);
+    PHI_CHECK(scoreTitle("RIGOLETTO - Tochter - Mein Vater", "Rigolato") == 90);
+    PHI_CHECK(scoreTitle("Nabucco: Va, pensiero", "Nabuko") == 90);
     // By sound, word for word.
     PHI_CHECK(scoreTitle("Feel", "viel") == 60);
     PHI_CHECK(scoreTitle("Feel", "fear") == 0);

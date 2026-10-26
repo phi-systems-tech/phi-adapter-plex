@@ -189,10 +189,15 @@ int scoreTitle(const std::string &titleText, const std::string &titleQuery)
     // Every word said is a word of the title, a letter off in a long one;
     // at its start it is the work, and as sure as a title said whole.
     if (!said.empty() && said.size() <= words.size()) {
+        // Or by sound, in a word of five letters or more: "Rigolato" and
+        // "Nabuko" for Rigoletto and Nabucco (pi5, 2026-10-26).
         const auto sameWord = [](const std::string &a, const std::string &b) {
             if (a == b) return true;
             const std::size_t longer = std::max(a.size(), b.size());
-            return longer >= 6 && editDistance(a, b) * 6 <= longer;
+            if (longer >= 6 && editDistance(a, b) * 6 <= longer) return true;
+            if (std::min(a.size(), b.size()) < 5) return false;
+            const std::string k = skeleton(a);
+            return k.size() >= 3 && k == skeleton(b);
         };
         bool atStart = true, all = true;
         for (std::size_t i = 0; i < said.size() && all; ++i) {
