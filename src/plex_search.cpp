@@ -182,11 +182,31 @@ int scoreTitle(const std::string &titleText, const std::string &titleQuery)
     if (distance * 5 <= longer) return static_cast<int>(100 - (distance * 100 + longer - 1) / longer);
     if (contains(title, q) && q.size() * 2 >= title.size()) return 85;
     if (contains(q, title) && title.size() * 2 >= q.size()) return 75;
+    const std::vector<std::string> said = normalisedWords(titleQuery);
+    const std::vector<std::string> words = normalisedWords(titleText);
+    // The work in a long title: "Aida" for "Aida: Ritorna vincitor",
+    // "Ricoletto" for "RIGOLETTO - Tochter - Mein Vater" (pi5, 2026-10-26).
+    // Every word said is a word of the title, a letter off in a long one;
+    // at its start it is the work, and as sure as a title said whole.
+    if (!said.empty() && said.size() <= words.size()) {
+        const auto sameWord = [](const std::string &a, const std::string &b) {
+            if (a == b) return true;
+            const std::size_t longer = std::max(a.size(), b.size());
+            return longer >= 6 && editDistance(a, b) * 6 <= longer;
+        };
+        bool atStart = true, all = true;
+        for (std::size_t i = 0; i < said.size() && all; ++i) {
+            if (!sameWord(said[i], words[i])) atStart = false;
+            bool found = false;
+            for (const std::string &w : words)
+                if (sameWord(said[i], w)) found = true;
+            all = found;
+        }
+        if (all && (said.size() > 1 || said.front().size() >= 4)) return atStart ? 90 : 80;
+    }
     // By sound, word for word: every word of the title has the consonants of
     // the word said in its place ("viel" for "Feel", pi5 2026-10-25). Only
     // ever asked among one artist's tracks, so a collision is one of theirs.
-    const std::vector<std::string> said = normalisedWords(titleQuery);
-    const std::vector<std::string> words = normalisedWords(titleText);
     if (said.size() != words.size()) return 0;
     for (std::size_t i = 0; i < said.size(); ++i) {
         if (said[i].size() < 3 || words[i].size() < 3) return 0;

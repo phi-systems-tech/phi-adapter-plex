@@ -187,6 +187,11 @@ void testSearchScores()
     PHI_CHECK(scoreTitle("Thankyou, Stars", "thank you stars") == 100);
     PHI_CHECK(scoreTitle("Nine Million Bicycles", "thank you stars") == 0);
     PHI_CHECK(scoreTitle("Angels", "angels") == 100);
+    // The work inside a long classical title, a letter off.
+    PHI_CHECK(scoreTitle("Aida: “Ritorna vincitor”", "Aida") == 90);
+    PHI_CHECK(scoreTitle("RIGOLETTO - Tochter - Mein Vater", "Ricoletto") == 90);
+    PHI_CHECK(scoreTitle("Un ballo in maschera: “Ecco l’orrido campo”", "maschera") == 80);
+    PHI_CHECK(scoreTitle("Come Undone", "irgendwas") == 0);
     // By sound, word for word.
     PHI_CHECK(scoreTitle("Feel", "viel") == 60);
     PHI_CHECK(scoreTitle("Feel", "fear") == 0);
