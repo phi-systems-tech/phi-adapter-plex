@@ -21,6 +21,7 @@
 // this answer - the server's own token never leaves the adapter.
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,14 @@ std::vector<std::string> parseMusicSections(const std::string &body);
 std::vector<Artist> parseArtists(const std::string &body);
 /// `/security/token` JSON into the delegation token; empty when none.
 std::string parseDelegationToken(const std::string &body);
+/// `/library/metadata/<key>` JSON of a track: its album's key, empty when
+/// the item is not a track or its title is not `title` (an item of another
+/// server that happens to share the key).
+std::string parseAlbumKey(const std::string &body, const std::string &title);
+/// "Next song" (`media.step`): the track `step` places from `ratingKey` on
+/// its album, in disc and track order and round at the ends; none when the
+/// album holds no other track, or not this one.
+std::optional<Track> albumNeighbour(std::vector<Track> albumTracks, const std::string &ratingKey, int step);
 
 /// The server paths of the search, in the order they are asked.
 std::string hubsSearchPath(const std::string &query, int limit);
@@ -113,6 +122,8 @@ std::string sectionsPath();
 std::string artistsPath(const std::string &sectionKey);
 std::string artistTracksPath(const std::string &artistKey);
 std::string delegationTokenPath();
+std::string metadataPath(const std::string &ratingKey);
+std::string albumTracksPath(const std::string &albumKey);
 
 /// The playable URL and MIME type of a track, with the token minted for it.
 struct Playable {

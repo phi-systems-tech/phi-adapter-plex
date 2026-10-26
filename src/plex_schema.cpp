@@ -114,6 +114,12 @@ v1::AdapterCapabilities capabilities()
                                        "What the library has for a title, an artist or both.");
     search.setPlacement(v1::AdapterActionPlacement::Hidden).setTimeoutMs(15000);
     caps.addInstanceAction(search);
+    // cmd.media.play with a step: {metadata, step} of an item answered
+    // before in, its album's next or previous track out, as items.
+    v1::AdapterActionDescriptor step("media.step", "Next on the album",
+                                     "The album's next or previous track after one this library answered with.");
+    step.setPlacement(v1::AdapterActionPlacement::Hidden).setTimeoutMs(15000);
+    caps.addInstanceAction(step);
     return caps;
 }
 

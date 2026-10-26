@@ -88,7 +88,7 @@ protected:
 
     void onAdapterActionInvoke(const sdk::AdapterActionInvokeRequest &request) override
     {
-        if (request.actionId() != kSearchAction) {
+        if (request.actionId() != kSearchAction && request.actionId() != kStepAction) {
             answerAction(request.cmdId(), v1::CmdStatus::NotSupported, "Unsupported action");
             return;
         }
@@ -99,6 +99,10 @@ protected:
         if (!m_settings.hasServer()) {
             answerAction(request.cmdId(), v1::CmdStatus::InvalidArgument,
                          "Plex server host, port and token are required for a search");
+            return;
+        }
+        if (request.actionId() == kStepAction) {
+            stepFrom(request.cmdId(), parseObject(request.paramsJson()));
             return;
         }
         const std::string query = phi::str::trimmed(jsonString(parseObject(request.paramsJson()), "query"));
@@ -144,6 +148,7 @@ private:
     enum class Lifecycle { Idle, Running, Paused, Stopped };
 
     static constexpr const char *kSearchAction = "media.search";
+    static constexpr const char *kStepAction = "media.step";
     static constexpr int kHubLimit = 10;
     static constexpr std::size_t kItemLimit = 5;
     static constexpr std::size_t kNearNames = 5;
@@ -320,6 +325,55 @@ private:
             answer["names"] = std::move(names);
             answer["titles"] = std::move(titles);
             sendAction(v1::ActionResponse::success(search->cmdId).setData(dump(answer)));
+        });
+    }
+
+    /// `media.step`: the album's next or previous track after an item this
+    /// adapter answered with. An item from elsewhere - another source, or
+    /// another server's key - answers with no items, so core goes on with
+    /// whoever knows it.
+    void stepFrom(v1::CmdId cmdId, const Json &params)
+    {
+        const Json meta = jsonValue(params, "metadata");
+        const std::string ratingKey = jsonString(meta, "ratingKey");
+        const std::string title = jsonString(meta, "title");
+        const int step = params.contains("step") && params["step"].is_number_integer() ? params["step"].get<int>() : 0;
+        if (jsonString(meta, "source") != "plex" || ratingKey.empty() || step == 0) {
+            sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({}, m_settings, {}, 1))));
+            return;
+        }
+        enqueueAction(cmdId, serverCall(m_settings, metadataPath(ratingKey)),
+                      [this, cmdId, ratingKey, title, step](net::HttpClient::Result result) {
+            const std::string albumKey = result.ok() ? parseAlbumKey(result.body(), title) : std::string();
+            if (albumKey.empty()) {
+                if (!result.ok() && result.status() != 404) {
+                    answerAction(cmdId, statusForHttp(result), errorForHttp(result, "Plex lookup failed"));
+                    return;
+                }
+                sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({}, m_settings, {}, 1))));
+                return;
+            }
+            enqueueAction(cmdId, serverCall(m_settings, albumTracksPath(albumKey)),
+                          [this, cmdId, ratingKey, step](net::HttpClient::Result album) {
+                if (!album.ok()) {
+                    answerAction(cmdId, statusForHttp(album), errorForHttp(album, "Plex album lookup failed"));
+                    return;
+                }
+                const std::optional<Track> next = albumNeighbour(parseTracks(album.body()), ratingKey, step);
+                if (!next) {
+                    sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({}, m_settings, {}, 1))));
+                    return;
+                }
+                enqueueAction(cmdId, serverCall(m_settings, delegationTokenPath()),
+                              [this, cmdId, track = *next](net::HttpClient::Result tokenResult) {
+                    const std::string token = tokenResult.ok() ? parseDelegationToken(tokenResult.body()) : std::string();
+                    if (token.empty()) {
+                        answerAction(cmdId, v1::CmdStatus::Failure, "The server did not mint a delegation token");
+                        return;
+                    }
+                    sendAction(v1::ActionResponse::success(cmdId).setData(dump(itemsJson({track}, m_settings, token, 1))));
+                });
+            });
         });
     }
 

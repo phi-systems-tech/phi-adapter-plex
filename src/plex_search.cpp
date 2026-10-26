@@ -541,6 +541,31 @@ std::string parseDelegationToken(const std::string &body)
     return token;
 }
 
+std::string parseAlbumKey(const std::string &body, const std::string &title)
+{
+    const Json items = jsonValue(jsonValue(parseJson(body), "MediaContainer"), "Metadata");
+    if (!items.is_array() || items.empty() || !items.front().is_object()) return {};
+    const Json &item = items.front();
+    if (jsonString(item, "type") != "track" || jsonString(item, "title") != title) return {};
+    return jsonString(item, "parentRatingKey");
+}
+
+std::optional<Track> albumNeighbour(std::vector<Track> albumTracks, const std::string &ratingKey, int step)
+{
+    std::stable_sort(albumTracks.begin(), albumTracks.end(), [](const Track &a, const Track &b) {
+        return a.parentIndex != b.parentIndex ? a.parentIndex < b.parentIndex : a.index < b.index;
+    });
+    const auto at = std::find_if(albumTracks.begin(), albumTracks.end(),
+                                 [&](const Track &t) { return t.ratingKey == ratingKey; });
+    if (at == albumTracks.end() || albumTracks.size() < 2 || step == 0) return std::nullopt;
+    const auto n = static_cast<std::ptrdiff_t>(albumTracks.size());
+    const std::ptrdiff_t from = at - albumTracks.begin();
+    const std::ptrdiff_t to = ((from + (step > 0 ? 1 : -1)) % n + n) % n;
+    Track out = albumTracks[static_cast<std::size_t>(to)];
+    out.score = 100;
+    return out;
+}
+
 std::string hubsSearchPath(const std::string &query, int limit)
 {
     return "/hubs/search?query=" + urlEncode(query) + "&limit=" + std::to_string(limit)
@@ -560,6 +585,16 @@ std::string artistsPath(const std::string &sectionKey)
 std::string artistTracksPath(const std::string &artistKey)
 {
     return "/library/metadata/" + urlEncode(artistKey) + "/allLeaves";
+}
+
+std::string metadataPath(const std::string &ratingKey)
+{
+    return "/library/metadata/" + urlEncode(ratingKey);
+}
+
+std::string albumTracksPath(const std::string &albumKey)
+{
+    return "/library/metadata/" + urlEncode(albumKey) + "/children";
 }
 
 std::string delegationTokenPath()

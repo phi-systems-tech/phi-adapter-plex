@@ -413,8 +413,33 @@ void testSearchSettings()
 
 } // namespace
 
+void testAlbumNeighbour()
+{
+    // A sampler on two discs, read in the server's order; the step goes in
+    // disc and track order and round at the ends.
+    const char *album = R"({"MediaContainer":{"Metadata":[
+        {"type":"track","ratingKey":"21","title":"B1","grandparentTitle":"X","parentIndex":2,"index":1},
+        {"type":"track","ratingKey":"12","title":"A2","grandparentTitle":"Y","parentIndex":1,"index":2},
+        {"type":"track","ratingKey":"11","title":"A1","grandparentTitle":"Z","parentIndex":1,"index":1}]}})";
+    const std::vector<Track> tracks = parseTracks(album);
+    PHI_CHECK(albumNeighbour(tracks, "12", 1)->ratingKey == "21");
+    PHI_CHECK(albumNeighbour(tracks, "12", -1)->ratingKey == "11");
+    PHI_CHECK(albumNeighbour(tracks, "21", 1)->ratingKey == "11");
+    PHI_CHECK(albumNeighbour(tracks, "11", -1)->ratingKey == "21");
+    PHI_CHECK(albumNeighbour(tracks, "11", 1)->score == 100);
+    PHI_CHECK(!albumNeighbour(tracks, "99", 1));
+    PHI_CHECK(!albumNeighbour(parseTracks(R"({"MediaContainer":{"Metadata":[{"type":"track","ratingKey":"1","title":"T"}]}})"), "1", 1));
+
+    const char *meta = R"({"MediaContainer":{"Metadata":[{"type":"track","ratingKey":"12","title":"A2","parentRatingKey":"7"}]}})";
+    PHI_CHECK(parseAlbumKey(meta, "A2") == "7");
+    PHI_CHECK(parseAlbumKey(meta, "Other").empty());
+    PHI_CHECK(metadataPath("12") == "/library/metadata/12");
+    PHI_CHECK(albumTracksPath("7") == "/library/metadata/7/children");
+}
+
 int main()
 {
+    testAlbumNeighbour();
     testTransportCommands();
     testSeekAndPlayMedia();
     testIdentityParsing();
