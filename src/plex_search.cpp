@@ -307,6 +307,11 @@ bool explainsAll(const std::string &artistName, const std::string &artistQuery)
 
 } // namespace
 
+namespace {
+/// An artist read from the end of what was said must be this clear.
+constexpr int kArtistAtEnd = 80;
+} // namespace
+
 std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const std::string &query)
 {
     const std::vector<std::string> words = wordsOf(query);
@@ -345,6 +350,36 @@ std::vector<ArtistGuess> guessArtists(const std::vector<Artist> &artists, const 
         if (worth && title.empty() && !explainsAll(best.artist.title, artistPart)) worth = false;
         if (worth) out.push_back(std::move(best));
         if (n == 1) break;
+    }
+    // The artist at the end: "Rigoletto Verdi", "Aida von Verdi" (pi5,
+    // 2026-10-26). Only with a title in front, and only a clear name - the
+    // end of a title is a name more often than not ("Thank You Stars").
+    static const std::set<std::string> joiners{"von", "by", "de", "di", "du", "der"};
+    for (std::size_t k = 1; k < words.size(); ++k) {
+        std::string artistPart;
+        for (std::size_t i = words.size() - k; i < words.size(); ++i) artistPart += (artistPart.empty() ? "" : " ") + words[i];
+        std::size_t titleEnd = words.size() - k;
+        while (titleEnd > 0 && joiners.count(normalised(words[titleEnd - 1]))) --titleEnd;
+        if (titleEnd == 0) continue;
+        std::string title;
+        for (std::size_t i = 0; i < titleEnd; ++i) title += (title.empty() ? "" : " ") + words[i];
+        ArtistGuess best;
+        // A surname alone names the one artist who has it ("Verdi" for
+        // Giuseppe Verdi), where it scores far under the whole name.
+        const std::string said = normalised(artistPart);
+        const Artist *bySurname = nullptr;
+        int surnames = 0;
+        for (const Artist &artist : artists) {
+            const int score = scoreArtist(artist.title, artistPart);
+            if (score > best.score) best = ArtistGuess{artist, score, title};
+            const std::vector<std::string> name = normalisedWords(artist.title);
+            if (k == 1 && said.size() >= 4 && name.size() > 1 && name.back() == said) {
+                bySurname = &artist;
+                ++surnames;
+            }
+        }
+        if (best.score < kArtistAtEnd && surnames == 1) best = ArtistGuess{*bySurname, kArtistAtEnd, title};
+        if (best.score >= kArtistAtEnd) out.push_back(std::move(best));
     }
     std::stable_sort(out.begin(), out.end(), [](const ArtistGuess &a, const ArtistGuess &b) { return a.score > b.score; });
     return out;

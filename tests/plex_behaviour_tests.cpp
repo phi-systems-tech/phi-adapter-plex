@@ -390,6 +390,19 @@ void testSearchSettings()
     const Playable p = playableFor(parseTracks(kLeaves).front(), s, "T");
     PHI_CHECK(p.url.find("musicBitrate=128") != std::string::npos);
     // The pick count bounds the pick: among one, the best-known always.
+    {
+        // The artist at the end, behind the title and a joining word.
+        std::vector<Artist> lib = library();
+        lib.push_back({"11", "Giuseppe Verdi"});
+        for (const char *q : {"Rigoletto Verdi", "Aida von Verdi"}) {
+            bool found = false;
+            for (const ArtistGuess &g : guessArtists(lib, q))
+                if (g.artist.title == "Giuseppe Verdi" && (g.title == "Rigoletto" || g.title == "Aida")) found = true;
+            PHI_CHECK(found);
+        }
+        // A title's last word is no artist unless it is a clear name.
+        for (const ArtistGuess &g : guessArtists(lib, "Thank You Stars")) PHI_CHECK(g.title != "Thank You");
+    }
     const std::vector<ArtistGuess> katie = guessArtists(library(), "katie melua");
     const std::vector<Track> one = matchArtistTracks(parseTracks(kLeaves), katie, "3",
                                                      [](std::size_t n) { return n - 1; }, 1);
