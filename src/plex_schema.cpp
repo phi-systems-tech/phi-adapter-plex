@@ -102,6 +102,8 @@ v1::AdapterCapabilities capabilities()
                      | v1::AdapterRequirement::Token);
     caps.setOptional(v1::AdapterRequirement::SupportsTls);
     caps.setFlags(v1::AdapterCapability::SupportsProbe);
+    // The server is reached on the LAN; plex.tv only hands out the token.
+    caps.setTopologies(v1::Topology::LocalCloudSetup);
 
     caps.addFactoryAction({"probe", "Test Plex server",
                            "Validate the Plex Media Server address and token."});
