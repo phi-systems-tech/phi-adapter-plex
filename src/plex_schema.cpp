@@ -101,7 +101,8 @@ v1::AdapterCapabilities capabilities()
     caps.setRequired(v1::AdapterRequirement::Host | v1::AdapterRequirement::Port
                      | v1::AdapterRequirement::Token);
     caps.setOptional(v1::AdapterRequirement::SupportsTls);
-    caps.setFlags(v1::AdapterCapability::SupportsProbe);
+    // The media server keeps its link to plex.tv (remote access, sign-in).
+    caps.setFlags(v1::AdapterCapability::SupportsProbe | v1::AdapterCapability::VendorCloudLink);
     // The server is reached on the LAN; plex.tv only hands out the token.
     caps.setTopologies(v1::Topology::LocalCloudSetup);
 
